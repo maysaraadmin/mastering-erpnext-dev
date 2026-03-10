@@ -37,7 +37,7 @@ mastering-erpnext-dev/
 
 1. **Clone this repository**
    ```bash
-   git clone https://github.com/your-username/mastering-erpnext-dev.git
+   git clone https://github.com/maysaraadmin/mastering-erpnext-dev.git
    cd mastering-erpnext-dev
    ```
 
