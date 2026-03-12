@@ -1,0 +1,21 @@
+# Property Setters Example for Chapter 4
+[
+    {
+        "doctype": "Asset",
+        "property": "label",
+        "value": "Asset ID",
+        "property_type": "Data"
+    },
+    {
+        "doctype": "Asset",
+        "property": "description",
+        "value": "Asset Description",
+        "property_type": "Text"
+    },
+    {
+        "doctype": "Asset",
+        "property": "purchase_value",
+        "value": "Purchase Value",
+        "property_type": "Currency"
+    }
+]

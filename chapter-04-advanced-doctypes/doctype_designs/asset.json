@@ -1,0 +1,78 @@
+# Example Asset DocType for Chapter 4
+{
+    "name": "Asset",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "naming_rule": "field:asset_name",
+    "fields": [
+        {
+            "fieldname": "asset_name",
+            "fieldtype": "Data",
+            "label": "Asset Name",
+            "reqd": 1,
+            "unique": 1
+        },
+        {
+            "fieldname": "asset_category",
+            "fieldtype": "Link",
+            "label": "Asset Category",
+            "options": "Asset Category",
+            "reqd": 1
+        },
+        {
+            "fieldname": "purchase_date",
+            "fieldtype": "Date",
+            "label": "Purchase Date",
+            "reqd": 1
+        },
+        {
+            "fieldname": "purchase_value",
+            "fieldtype": "Currency",
+            "label": "Purchase Value",
+            "reqd": 1
+        },
+        {
+            "fieldname": "current_status",
+            "fieldtype": "Select",
+            "label": "Current Status",
+            "options": "In Use\nUnder Maintenance\nRetired\nDisposed",
+            "default": "In Use",
+            "reqd": 1
+        },
+        {
+            "fieldname": "location",
+            "fieldtype": "Data",
+            "label": "Location",
+            "reqd": 0
+        },
+        {
+            "fieldname": "assigned_to",
+            "fieldtype": "Link",
+            "label": "Assigned To",
+            "options": "User",
+            "reqd": 0
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "submit": 1,
+            "cancel": 1,
+            "amend": 1
+        },
+        {
+            "role": "Asset Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "submit": 1,
+            "cancel": 1,
+            "amend": 1
+        }
+    ]
+}

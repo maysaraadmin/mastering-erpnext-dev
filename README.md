@@ -104,7 +104,7 @@ This is a living educational resource. Contributions are welcome! See [CONTRIBUT
 
 ## 📄 License
 
-This work is licensed under the [MIT License](LICENSE).
+This work is licensed under the [GNU GENERAL PUBLIC LICENSE](LICENSE).
 
 ## 🔗 Additional Resources
 

@@ -1,0 +1,73 @@
+# Example Asset Assignment DocType for Chapter 4
+{
+    "name": "Asset Assignment",
+    "doctype": "DocType",
+    "istable": 1,
+    "engine": "InnoDB",
+    "fields": [
+        {
+            "fieldname": "asset",
+            "fieldtype": "Link",
+            "label": "Asset",
+            "options": "Asset",
+            "reqd": 1,
+            "unique": 1
+        },
+        {
+            "fieldname": "assigned_to",
+            "fieldtype": "Link",
+            "label": "Assigned To",
+            "options": "User",
+            "reqd": 1,
+            "unique": 1
+        },
+        {
+            "fieldname": "assignment_date",
+            "fieldtype": "Date",
+            "label": "Assignment Date",
+            "reqd": 1,
+            "default": "Today"
+        },
+        {
+            "fieldname": "return_date",
+            "fieldtype": "Date",
+            "label": "Return Date",
+            "reqd": 0
+        },
+        {
+            "fieldname": "condition",
+            "fieldtype": "Select",
+            "label": "Condition",
+            "options": "Good\nFair\nPoor\nDamaged",
+            "reqd": 1
+        },
+        {
+            "fieldname": "notes",
+            "fieldtype": "Text",
+            "label": "Notes",
+            "reqd": 0
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "submit": 1,
+            "cancel": 1,
+            "amend": 1
+        },
+        {
+            "role": "Asset Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "submit": 1,
+            "cancel": 1,
+            "amend": 1
+        }
+    ]
+}
