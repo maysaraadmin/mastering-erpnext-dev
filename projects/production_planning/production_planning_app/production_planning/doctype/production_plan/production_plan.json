@@ -1,0 +1,181 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-03-12 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "company",
+  "posting_date",
+  "column_break_4",
+  "from_date",
+  "to_date",
+  "section_break_7",
+  "get_items_from",
+  "sales_orders",
+  "get_sales_orders",
+  "section_break_11",
+  "po_items",
+  "section_break_13",
+  "get_raw_materials",
+  "raw_materials",
+  "section_break_16",
+  "status",
+  "total_planned_qty",
+  "column_break_19",
+  "total_produced_qty",
+  "completion_percentage"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "MFG-PP-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "label": "From Date"
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "label": "To Date"
+  },
+  {
+   "fieldname": "section_break_7",
+   "fieldtype": "Section Break",
+   "label": "Get Items From"
+  },
+  {
+   "fieldname": "get_items_from",
+   "fieldtype": "Select",
+   "label": "Get Items From",
+   "options": "\nSales Order\nMaterial Request"
+  },
+  {
+   "depends_on": "eval:doc.get_items_from=='Sales Order'",
+   "fieldname": "sales_orders",
+   "fieldtype": "Table MultiSelect",
+   "label": "Sales Orders",
+   "options": "Production Plan Sales Order"
+  },
+  {
+   "depends_on": "eval:doc.get_items_from=='Sales Order'",
+   "fieldname": "get_sales_orders",
+   "fieldtype": "Button",
+   "label": "Get Sales Orders"
+  },
+  {
+   "fieldname": "section_break_11",
+   "fieldtype": "Section Break",
+   "label": "Items to Manufacture"
+  },
+  {
+   "fieldname": "po_items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Production Plan Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_13",
+   "fieldtype": "Section Break",
+   "label": "Material Requirement"
+  },
+  {
+   "fieldname": "get_raw_materials",
+   "fieldtype": "Button",
+   "label": "Get Raw Materials"
+  },
+  {
+   "fieldname": "raw_materials",
+   "fieldtype": "Table",
+   "label": "Raw Materials",
+   "options": "Production Plan Material Request"
+  },
+  {
+   "fieldname": "section_break_16",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nSubmitted\nIn Process\nCompleted\nCancelled"
+  },
+  {
+   "fieldname": "total_planned_qty",
+   "fieldtype": "Float",
+   "label": "Total Planned Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_19",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_produced_qty",
+   "fieldtype": "Float",
+   "label": "Total Produced Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completion_percentage",
+   "fieldtype": "Percent",
+   "label": "Completion %",
+   "read_only": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-03-12 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Production Planning",
+ "name": "Production Plan",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Manufacturing Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
