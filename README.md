@@ -112,14 +112,14 @@ mastering-erpnext-dev/
 - **Chapter 7**: Client-Side Mastery - 5 JavaScript files 
 
 ### Part III: Business Logic
-- **Chapter 8**: Server Script Hooks & Schedulers - 3 Python files (500+ lines)
+- **Chapter 8**: Server Script Hooks & Schedulers - 3 Python files 
 - **Chapter 9**: Permissions System - Complete permission examples
 - **Chapter 10**: Custom Print Formats - 3 templates (HTML + CSS)
 
 ### Part IV: Real-World Projects
 - **Chapter 11**: Asset Management System - 20+ files
 - **Chapter 12**: Production Planning Tool - 10+ files
-- **Chapter 13**: Vendor Portal - 12+ files, 500+ lines (REST API)
+- **Chapter 13**: Vendor Portal - 12+ files,  (REST API)
 
 ### Part V: Production Workflow
 - **Chapter 14**: Debugging Like a Pro - Complete debugging guide
