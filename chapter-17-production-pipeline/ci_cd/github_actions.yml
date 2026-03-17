@@ -92,7 +92,7 @@ jobs:
       run: black --check .
     
     - name: Run pylint
-      run: pylint **/*.py --disable=all --enable=E,F
+      run: find . -name "*.py" -not -path "./.git/*" | xargs pylint --disable=all --enable=E,F
 
   deploy:
     needs: [test, lint]

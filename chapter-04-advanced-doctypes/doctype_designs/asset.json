@@ -26,17 +26,17 @@
             "reqd": 1
         },
         {
-            "fieldname": "purchase_value",
+            "fieldname": "purchase_amount",
             "fieldtype": "Currency",
-            "label": "Purchase Value",
+            "label": "Purchase Amount",
             "reqd": 1
         },
         {
-            "fieldname": "current_status",
+            "fieldname": "status",
             "fieldtype": "Select",
-            "label": "Current Status",
-            "options": "In Use\nUnder Maintenance\nRetired\nDisposed",
-            "default": "In Use",
+            "label": "Status",
+            "options": "In Stock\nIn Use\nUnder Maintenance\nScrapped",
+            "default": "In Stock",
             "reqd": 1
         },
         {

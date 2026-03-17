@@ -155,10 +155,10 @@ def get_purchase_orders(vendor: str, status: Optional[str] = None, token: Option
 				'name', 
 				'transaction_date', 
 				'schedule_date', 
-				'grand_total', 
+				'grand_total',
+				'base_grand_total',
 				'status',
-				'currency',
-				'perceived_total_currency'
+				'currency'
 			],
 			order_by='transaction_date desc',
 			limit=100  # Prevent data dumping

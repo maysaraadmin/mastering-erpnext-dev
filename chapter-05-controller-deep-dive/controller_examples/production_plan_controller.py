@@ -7,6 +7,7 @@ This example demonstrates a production planning controller
 with complex business logic and cross-document operations.
 """
 
+from typing import List, Dict, Any, Optional, Union
 import frappe
 from frappe.model.document import Document
 from frappe.utils import flt, cint, getdate, add_days, today, nowdate
@@ -18,22 +19,22 @@ class ProductionPlan(Document):
     Demonstrates complex business logic and cross-document operations
     """
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         """Initialize production plan with custom properties"""
         super().__init__(*args, **kwargs)
         
         # Custom properties
-        self._original_status = None
-        self._material_requirements = []
-        self._capacity_conflicts = []
-        self._bom_explosion = {}
-        self._workstation_load = {}
+        self._original_status: Optional[str] = None
+        self._material_requirements: List[Dict[str, Any]] = []
+        self._capacity_conflicts: List[Dict[str, Any]] = []
+        self._bom_explosion: Dict[str, Any] = {}
+        self._workstation_load: List[Dict[str, Any]] = []
         
         # Load additional data if not new
         if not self.is_new():
             self.load_production_data()
     
-    def load_production_data(self):
+    def load_production_data(self) -> None:
         """Load production-related data"""
         if self.name:
             # Load material requirements
@@ -46,7 +47,7 @@ class ProductionPlan(Document):
             # Load workstation load
             self.load_workstation_load()
     
-    def load_workstation_load(self):
+    def load_workstation_load(self) -> None:
         """Load current workstation load"""
         if self.planning_start_date and self.planning_end_date:
             self._workstation_load = frappe.db.sql("""
@@ -67,7 +68,7 @@ class ProductionPlan(Document):
                 'plan_name': self.name
             }, as_dict=True)
     
-    def validate(self):
+    def validate(self) -> None:
         """Main validation hook"""
         self.validate_required_fields()
         self.validate_planning_dates()
@@ -77,15 +78,15 @@ class ProductionPlan(Document):
         self.validate_material_availability()
         self.validate_bom_availability()
     
-    def validate_required_fields(self):
+    def validate_required_fields(self) -> None:
         """Validate required fields"""
-        required_fields = ['planning_start_date', 'planning_end_date']
+        required_fields: List[str] = ['planning_start_date', 'planning_end_date']
         
         for field in required_fields:
             if not self.get(field):
                 frappe.throw(_(f"{field.replace('_', ' ').title()} is required"))
     
-    def validate_planning_dates(self):
+    def validate_planning_dates(self) -> None:
         """Validate planning date range"""
         if self.planning_start_date and self.planning_end_date:
             if getdate(self.planning_start_date) >= getdate(self.planning_end_date):
@@ -99,7 +100,7 @@ class ProductionPlan(Document):
             if planning_days > 90:
                 frappe.throw(_("Planning period cannot exceed 90 days"))
     
-    def validate_sales_orders(self):
+    def validate_sales_orders(self) -> None:
         """Validate linked sales orders"""
         if self.get('sales_orders'):
             for so in self.sales_orders:
@@ -121,7 +122,7 @@ class ProductionPlan(Document):
                 if existing_plan:
                     frappe.throw(_("Sales Order {0} is already linked to another production plan").format(so.sales_order))
     
-    def validate_production_items(self):
+    def validate_production_items(self) -> None:
         """Validate production items"""
         if not self.get('production_items'):
             frappe.throw(_("At least one production item is required"))
@@ -149,7 +150,7 @@ class ProductionPlan(Document):
             if not bom_exists:
                 frappe.throw(_("No active default BOM found for item {0}").format(item.item_code))
     
-    def validate_capacity_constraints(self):
+    def validate_capacity_constraints(self) -> None:
         """Validate production capacity constraints"""
         if not self.get('production_operations'):
             return
@@ -181,7 +182,7 @@ class ProductionPlan(Document):
             ])
             frappe.throw(_("Capacity constraints violated:\n{0}").format(conflict_details))
     
-    def validate_material_availability(self):
+    def validate_material_availability(self) -> None:
         """Validate material availability"""
         self.calculate_material_requirements()
         
@@ -191,7 +192,7 @@ class ProductionPlan(Document):
                     req.item_code, req.shortage_qty
                 ))
     
-    def validate_bom_availability(self):
+    def validate_bom_availability(self) -> None:
         """Validate BOM availability for all items"""
         for item in self.production_items:
             bom = frappe.db.get_value('BOM', {
@@ -209,14 +210,14 @@ class ProductionPlan(Document):
                 if bom_doc.to_date and getdate(self.planning_end_date) > getdate(bom_doc.to_date):
                     frappe.throw(_("BOM {0} is not valid after {1}").format(bom, bom_doc.to_date))
     
-    def get_workstation_load(self, workstation):
+    def get_workstation_load(self, workstation: str) -> float:
         """Get current workstation load"""
         for load in self._workstation_load:
             if load.workstation == workstation:
                 return load.total_load
         return 0
     
-    def before_save(self):
+    def before_save(self) -> None:
         """Called before saving the document"""
         self._original_status = self.get_db_value('status') if not self.is_new() else None
         
@@ -231,7 +232,7 @@ class ProductionPlan(Document):
         # Clear conflicts and regenerate
         self._capacity_conflicts = []
     
-    def before_insert(self):
+    def before_insert(self) -> None:
         """Called before inserting new document"""
         # Set initial values
         if not self.status:
@@ -243,7 +244,7 @@ class ProductionPlan(Document):
         # Generate plan number
         self.plan_number = self.generate_plan_number()
     
-    def calculate_production_schedule(self):
+    def calculate_production_schedule(self) -> None:
         """Calculate production schedule"""
         if not self.production_items or not self.planning_start_date:
             return
@@ -263,10 +264,10 @@ class ProductionPlan(Document):
             # Move to next item
             current_date = add_days(item.planned_end_date, 1)
     
-    def calculate_material_requirements(self):
+    def calculate_material_requirements(self) -> None:
         """Calculate material requirements through BOM explosion"""
         self._material_requirements = []
-        material_dict = {}
+        material_dict: Dict[str, float] = {}
         
         for item in self.production_items:
             # Get BOM
@@ -304,7 +305,7 @@ class ProductionPlan(Document):
         
         self._material_requirements = list(material_dict.values())
     
-    def get_projected_availability(self, item_code):
+    def get_projected_availability(self, item_code: str) -> float:
         """Get projected availability for an item"""
         # Current stock
         current_stock = frappe.db.get_value('Bin', {'item_code': item_code}, 'actual_qty') or 0
@@ -325,7 +326,7 @@ class ProductionPlan(Document):
         
         return current_stock + planned_receipts
     
-    def calculate_operation_times(self):
+    def calculate_operation_times(self) -> None:
         """Calculate operation times based on BOM operations"""
         if not self.production_operations:
             return
@@ -341,12 +342,12 @@ class ProductionPlan(Document):
                 if operation_time:
                     operation.estimated_time = operation_time / 60  # Convert to hours
     
-    def set_default_values(self):
+    def set_default_values(self) -> None:
         """Set default values"""
         if not self.fiscal_year:
             self.fiscal_year = frappe.db.get_default('fiscal_year')
     
-    def on_update(self):
+    def on_update(self) -> None:
         """Called after document is saved"""
         # Update material requirements table
         self.update_material_requirements_table()
@@ -358,7 +359,7 @@ class ProductionPlan(Document):
         # Log production plan activity
         self.log_production_activity()
     
-    def on_submit(self):
+    def on_submit(self) -> None:
         """Called after document is submitted"""
         # Create production orders
         self.create_production_orders()
@@ -372,7 +373,7 @@ class ProductionPlan(Document):
         # Send submission confirmation
         self.send_submission_confirmation()
     
-    def on_cancel(self):
+    def on_cancel(self) -> None:
         """Called after document is cancelled"""
         # Cancel production orders
         self.cancel_production_orders()
@@ -386,7 +387,7 @@ class ProductionPlan(Document):
         # Send cancellation notification
         self.send_cancellation_notification()
     
-    def generate_plan_number(self):
+    def generate_plan_number(self) -> str:
         """Generate unique production plan number"""
         # Format: PP-YYYYMMDD-SEQ
         date_str = nowdate().replace('-', '')
@@ -396,7 +397,7 @@ class ProductionPlan(Document):
         frappe.db.set_value('Series', f'PP-{date_str}-', 'current', sequence)
         return f"PP-{date_str}-{sequence:04d}"
     
-    def update_material_requirements_table(self):
+    def update_material_requirements_table(self) -> None:
         """Update material requirements child table"""
         # Clear existing requirements
         self.set('production_materials', [])
@@ -410,7 +411,7 @@ class ProductionPlan(Document):
                 'shortage_qty': req['shortage_qty']
             })
     
-    def send_status_change_notification(self):
+    def send_status_change_notification(self) -> None:
         """Send notification for status change"""
         recipients = self.get_notification_recipients()
         
@@ -428,9 +429,9 @@ class ProductionPlan(Document):
                 }
             )
     
-    def get_notification_recipients(self):
+    def get_notification_recipients(self) -> List[str]:
         """Get list of notification recipients"""
-        recipients = []
+        recipients: List[str] = []
         
         # Add production manager
         if self.production_manager:
@@ -443,7 +444,7 @@ class ProductionPlan(Document):
         # Remove duplicates
         return list(set(recipients))
     
-    def log_production_activity(self):
+    def log_production_activity(self) -> None:
         """Log production plan activity"""
         activity_log = frappe.get_doc({
             'doctype': 'Production Plan Activity Log',
@@ -454,7 +455,7 @@ class ProductionPlan(Document):
         })
         activity_log.insert(ignore_permissions=True)
     
-    def create_production_orders(self):
+    def create_production_orders(self) -> None:
         """Create production orders based on plan"""
         for item in self.production_items:
             production_order = frappe.get_doc({
@@ -473,7 +474,7 @@ class ProductionPlan(Document):
             # Link back to production plan
             item.production_order = production_order.name
     
-    def get_linked_sales_order(self, item_code):
+    def get_linked_sales_order(self, item_code: str) -> Optional[str]:
         """Get linked sales order for an item"""
         for so in self.get('sales_orders', []):
             # Check if item is in sales order
@@ -487,7 +488,7 @@ class ProductionPlan(Document):
         
         return None
     
-    def create_material_requests(self):
+    def create_material_requests(self) -> None:
         """Create material requests for shortages"""
         for req in self._material_requirements:
             if req['shortage_qty'] > 0:
@@ -507,7 +508,7 @@ class ProductionPlan(Document):
                 material_request.insert()
                 material_request.submit()
     
-    def update_capacity_planning(self):
+    def update_capacity_planning(self) -> None:
         """Update capacity planning with this plan's operations"""
         for operation in self.production_operations:
             if operation.workstation and operation.estimated_time:
@@ -526,7 +527,7 @@ class ProductionPlan(Document):
                     'operation': operation.operation
                 })
     
-    def send_submission_confirmation(self):
+    def send_submission_confirmation(self) -> None:
         """Send submission confirmation"""
         recipients = self.get_notification_recipients()
         
@@ -544,7 +545,7 @@ class ProductionPlan(Document):
                 }
             )
     
-    def cancel_production_orders(self):
+    def cancel_production_orders(self) -> None:
         """Cancel created production orders"""
         for item in self.production_items:
             if item.production_order:
@@ -552,7 +553,7 @@ class ProductionPlan(Document):
                 if production_order.docstatus == 1:
                     production_order.cancel()
     
-    def cancel_material_requests(self):
+    def cancel_material_requests(self) -> None:
         """Cancel created material requests"""
         material_requests = frappe.get_all('Material Request',
             filters={'production_plan': self.name, 'docstatus': 1},
@@ -563,14 +564,14 @@ class ProductionPlan(Document):
             mr = frappe.get_doc('Material Request', mr_name)
             mr.cancel()
     
-    def reverse_capacity_planning(self):
+    def reverse_capacity_planning(self) -> None:
         """Reverse capacity planning updates"""
         frappe.db.sql("""
             DELETE FROM `tabWorkstation Load`
             WHERE production_plan = %(plan)s
         """, {'plan': self.name})
     
-    def send_cancellation_notification(self):
+    def send_cancellation_notification(self) -> None:
         """Send cancellation notification"""
         recipients = self.get_notification_recipients()
         

@@ -366,15 +366,18 @@ class Asset(Document):
         return list(set(recipients))
     
     def log_asset_activity(self) -> None:
-        """Log asset activity"""
-        activity_log = frappe.get_doc({
-            'doctype': 'Asset Activity Log',
-            'asset': self.name,
-            'activity_type': 'Status Change' if self._original_status != self.status else 'Update',
-            'description': f"Asset status changed from {self._original_status or 'New'} to {self.status}",
-            'user': frappe.session.user
-        })
-        activity_log.insert(ignore_permissions=True)
+        """Log asset activity using Frappe's built-in logger.
+        
+        NOTE: 'Asset Activity Log' is not a standard Frappe DocType.
+        If you need a persistent audit trail, define this DocType in your app
+        or use frappe.log_error() / a custom DocType. For now we use the logger.
+        """
+        activity_type = 'Status Change' if self._original_status != self.status else 'Update'
+        description = (
+            f"Asset {self.name} status changed from "
+            f"{self._original_status or 'New'} to {self.status}"
+        )
+        frappe.logger("asset").info(f"[{activity_type}] {description} by {frappe.session.user}")
     
     def create_asset_register_entry(self) -> None:
         """Create entry in asset register"""

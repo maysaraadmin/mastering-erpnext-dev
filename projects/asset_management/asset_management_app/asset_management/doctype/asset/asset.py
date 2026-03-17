@@ -8,6 +8,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today, add_days
 from frappe import _
+from typing import Optional, Dict, Any
 
 class Asset(Document):
 	"""Asset management controller with complete lifecycle"""
@@ -47,7 +48,8 @@ class Asset(Document):
 				frappe.throw(_("Asset with name '{0}' already exists: {1}").format(
 					self.asset_name, existing_by_name
 				), frappe.DuplicateEntryError)
-		def validate_dates(self):
+	
+	def validate_dates(self) -> None:
 		"""Validate date fields"""
 		if self.purchase_date and getdate(self.purchase_date) > getdate(today()):
 			frappe.throw(_("Purchase date cannot be in the future"))
@@ -114,7 +116,7 @@ class Asset(Document):
 				UPDATE `tabAsset Category`
 				SET total_assets = (
 					SELECT COUNT(*) FROM `tabAsset` 
-					WHERE asset_category = %(category)s
+					WHERE asset_category = %(category)s AND docstatus != 2
 				)
 				WHERE name = %(category)s
 			""", {'category': self.asset_category})
