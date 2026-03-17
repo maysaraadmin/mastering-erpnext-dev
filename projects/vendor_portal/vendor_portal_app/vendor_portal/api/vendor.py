@@ -9,15 +9,19 @@ from frappe import _
 from frappe.utils import today, getdate
 import hashlib
 import time
+from typing import Dict, Any, Optional, List
 
-def validate_api_token(token):
+def validate_api_token(token: str) -> Dict[str, Any]:
 	"""Validate API token and return vendor information"""
 	try:
-		# Check if token exists in cache
-		vendor_name = frappe.cache().get(f"vendor_token:{token}")
+		# Token data is stored as a dict in cache (set by authenticate())
+		token_data = frappe.cache().get(f"vendor_token:{token}")
 		
-		if not vendor_name:
+		if not token_data:
 			frappe.throw(_("Invalid or expired token"), frappe.AuthenticationError)
+		
+		# token_data is a dict: {'vendor_name': ..., 'vendor_email': ..., 'created_at': ...}
+		vendor_name = token_data.get('vendor_name') if isinstance(token_data, dict) else token_data
 		
 		# Verify vendor still exists and is active
 		vendor = frappe.db.get_value('Vendor', 
@@ -37,7 +41,7 @@ def validate_api_token(token):
 		frappe.log_error(f"Token validation failed: {str(e)}")
 		frappe.throw(_("Authentication failed"), frappe.AuthenticationError)
 
-def rate_limit_check(vendor_name, action='api_call'):
+def rate_limit_check(vendor_name: str, action: str = 'api_call') -> None:
 	"""Implement rate limiting for API calls"""
 	try:
 		cache_key = f"rate_limit:{vendor_name}:{action}"
@@ -54,7 +58,7 @@ def rate_limit_check(vendor_name, action='api_call'):
 		frappe.log_error(f"Rate limiting check failed: {str(e)}")
 
 @frappe.whitelist(allow_guest=True)
-def authenticate(api_key, api_secret):
+def authenticate(api_key: str, api_secret: str) -> Dict[str, Any]:
 	"""Authenticate vendor using API credentials with enhanced security"""
 	try:
 		# Input validation
@@ -118,7 +122,7 @@ def authenticate(api_key, api_secret):
 		raise
 
 @frappe.whitelist()
-def get_purchase_orders(vendor, status=None, token=None):
+def get_purchase_orders(vendor: str, status: Optional[str] = None, token: Optional[str] = None) -> Dict[str, Any]:
 	"""Get purchase orders for vendor with proper authentication"""
 	try:
 		# Validate token

@@ -46,19 +46,19 @@ frappe.ui.form.on('Sales Order', {
 	},
 	
 	// Triggered before form is submitted
+	// NOTE: before_submit is synchronous in Frappe — setting frappe.validated = false
+	// inside an async frappe.confirm() callback does NOT reliably block submission.
+	// Use a server-side on_submit validation or a custom button instead for async checks.
 	before_submit: function(frm) {
-		// Confirmation before submit
+		// For high-value orders, use a custom "Submit" button that shows a confirm
+		// dialog and then calls frm.savesubmit() only on confirmation.
+		// The pattern below is intentionally kept simple and synchronous.
 		if (frm.doc.grand_total > 100000) {
-			frappe.confirm(
-				__('This is a high-value order. Are you sure you want to submit?'),
-				function() {
-					// Continue with submit
-				},
-				function() {
-					// Cancel submit
-					frappe.validated = false;
-				}
-			);
+			// Warn the user via a non-blocking alert; actual guard is server-side.
+			frappe.show_alert({
+				message: __('High-value order — ensure approvals are in place before submitting.'),
+				indicator: 'orange'
+			}, 8);
 		}
 	},
 	

@@ -192,4 +192,16 @@ def get_permission_query_conditions(user):
 	if "Manufacturing Manager" in frappe.get_roles(user):
 		return None
 	
-	return f"`tabProduction Plan`.company in ({', '.join(frappe.get_user_companies(user))})"
+	# frappe.get_user_companies() does not exist in Frappe v14/v15.
+	# Use frappe.db.get_all to fetch companies the user belongs to via User Permission.
+	user_companies = frappe.db.get_all(
+		'User Permission',
+		filters={'user': user, 'allow': 'Company'},
+		pluck='for_value'
+	)
+	
+	if not user_companies:
+		return "1=0"  # No access if no company permissions defined
+	
+	companies = ", ".join([frappe.db.escape(c) for c in user_companies])
+	return f"`tabProduction Plan`.company in ({companies})"

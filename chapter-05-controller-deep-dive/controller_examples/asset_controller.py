@@ -7,6 +7,7 @@ This example demonstrates a complete asset management controller
 with all lifecycle hooks, validation, and business logic.
 """
 
+from typing import List, Dict, Any, Optional, Union
 import frappe
 from frappe.model.document import Document
 from frappe.utils import flt, cint, getdate, add_days, today
@@ -18,20 +19,29 @@ class Asset(Document):
     Demonstrates complete document lifecycle management
     """
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         """Initialize asset with custom properties"""
         super().__init__(*args, **kwargs)
         
         # Custom properties
-        self._original_status = None
-        self._maintenance_history = []
-        self._deprecation_warnings = []
+        self._maintenance_history: List[Dict[str, Any]] = []
+        self._deprecation_warnings: List[str] = []
+        
+        # Capture original status BEFORE any changes so validate() can use it.
+        # Must be done in __init__ (not before_save) since validate() runs first
+        # in the Frappe lifecycle: validate → before_save → save → on_update.
+        if not self.is_new():
+            self._original_status: Optional[str] = frappe.db.get_value(
+                self.doctype, self.name, 'status'
+            )
+        else:
+            self._original_status = None
         
         # Load additional data if not new
         if not self.is_new():
             self.load_asset_history()
     
-    def load_asset_history(self):
+    def load_asset_history(self) -> None:
         """Load asset maintenance and depreciation history"""
         if self.name:
             self._maintenance_history = frappe.get_all('Asset Maintenance History',
@@ -40,7 +50,7 @@ class Asset(Document):
                 order_by='date desc'
             )
     
-    def autoname(self):
+    def autoname(self) -> None:
         """Generate asset name automatically"""
         if not self.name:
             # Format: ASSET-<CATEGORY_CODE>-<SEQUENCE>
@@ -53,7 +63,7 @@ class Asset(Document):
             # Update series
             frappe.db.set_value('Series', f'ASSET-{category_code}-', 'current', sequence)
     
-    def validate(self):
+    def validate(self) -> None:
         """Main validation hook"""
         self.validate_required_fields()
         self.validate_asset_category()
@@ -62,15 +72,15 @@ class Asset(Document):
         self.validate_location_and_status()
         self.validate_financial_data()
     
-    def validate_required_fields(self):
+    def validate_required_fields(self) -> None:
         """Validate required fields"""
-        required_fields = ['asset_category', 'item_code', 'asset_name']
+        required_fields: List[str] = ['asset_category', 'item_code', 'asset_name']
         
         for field in required_fields:
             if not self.get(field):
                 frappe.throw(_(f"{field.replace('_', ' ').title()} is required"))
     
-    def validate_asset_category(self):
+    def validate_asset_category(self) -> None:
         """Validate asset category and set defaults"""
         if self.asset_category:
             category = frappe.get_doc('Asset Category', self.asset_category)
@@ -87,7 +97,7 @@ class Asset(Document):
             if category.status != 'Active':
                 frappe.throw(_("Asset Category must be active"))
     
-    def validate_purchase_details(self):
+    def validate_purchase_details(self) -> None:
         """Validate purchase information"""
         if self.purchase_date:
             if getdate(self.purchase_date) > getdate(today()):
@@ -101,7 +111,7 @@ class Asset(Document):
             if getdate(self.commissioning_date) < getdate(self.purchase_date):
                 frappe.throw(_("Commissioning date cannot be before purchase date"))
     
-    def validate_deprecation_settings(self):
+    def validate_deprecation_settings(self) -> None:
         """Validate depreciation settings"""
         if self.depreciation_method == 'Straight Line':
             if not self.useful_life or self.useful_life <= 0:
@@ -116,7 +126,7 @@ class Asset(Document):
             if self.salvage_value >= self.purchase_amount:
                 frappe.throw(_("Salvage value cannot be greater than or equal to purchase amount"))
     
-    def validate_location_and_status(self):
+    def validate_location_and_status(self) -> None:
         """Validate asset location and status"""
         if self.location:
             # Validate location exists
@@ -127,9 +137,9 @@ class Asset(Document):
         if self._original_status and self._original_status != self.status:
             self.validate_status_transition()
     
-    def validate_status_transition(self):
+    def validate_status_transition(self) -> None:
         """Validate asset status transitions"""
-        valid_transitions = {
+        valid_transitions: Dict[str, List[str]] = {
             'In Stock': ['In Use', 'Under Maintenance', 'Scrapped'],
             'In Use': ['Under Maintenance', 'In Stock', 'Scrapped'],
             'Under Maintenance': ['In Use', 'In Stock', 'Scrapped'],
@@ -141,7 +151,7 @@ class Asset(Document):
                 self._original_status, self.status
             ))
     
-    def validate_financial_data(self):
+    def validate_financial_data(self) -> None:
         """Validate financial calculations"""
         if self.purchase_amount:
             # Calculate current value
@@ -151,9 +161,10 @@ class Asset(Document):
             if self.current_value < 0:
                 frappe.throw(_("Current value cannot be negative"))
     
-    def before_save(self):
+    def before_save(self) -> None:
         """Called before saving the document"""
-        self._original_status = self.get_db_value('status') if not self.is_new() else None
+        # Note: _original_status is captured in __init__ so validate() can use it.
+        # Do NOT re-assign it here — before_save runs after validate().
         
         # Calculate derived fields
         self.calculate_depreciation()
@@ -165,7 +176,7 @@ class Asset(Document):
         # Format data
         self.format_data()
     
-    def before_insert(self):
+    def before_insert(self) -> None:
         """Called before inserting new document"""
         # Set initial values
         if not self.purchase_date:
@@ -181,7 +192,7 @@ class Asset(Document):
         # Generate asset ID
         self.asset_id = self.generate_asset_id()
     
-    def calculate_depreciation(self):
+    def calculate_depreciation(self) -> None:
         """Calculate depreciation based on method"""
         if not self.purchase_amount or not self.purchase_date:
             return
@@ -191,7 +202,7 @@ class Asset(Document):
         elif self.depreciation_method == 'Written Down Value':
             self.calculate_wdv_depreciation()
     
-    def calculate_straight_line_depreciation(self):
+    def calculate_straight_line_depreciation(self) -> None:
         """Calculate straight line depreciation"""
         if not self.useful_life:
             return
@@ -208,7 +219,7 @@ class Asset(Document):
             self.purchase_amount - (self.salvage_value or 0)
         )
     
-    def calculate_wdv_depreciation(self):
+    def calculate_wdv_depreciation(self) -> None:
         """Calculate written down value depreciation"""
         if not self.depreciation_rate:
             return
@@ -225,7 +236,7 @@ class Asset(Document):
         max_depreciation = self.purchase_amount - (self.salvage_value or 0)
         self.accumulated_depreciation = min(self.accumulated_depreciation, max_depreciation)
     
-    def calculate_current_value(self):
+    def calculate_current_value(self) -> None:
         """Calculate current asset value"""
         if self.purchase_amount:
             self.current_value = self.purchase_amount - (self.accumulated_depreciation or 0)
@@ -234,17 +245,17 @@ class Asset(Document):
             if self.salvage_value and self.current_value < self.salvage_value:
                 self.current_value = self.salvage_value
     
-    def set_default_values(self):
+    def set_default_values(self) -> None:
         """Set default values"""
         if not self.asset_name and self.item_code:
             self.asset_name = frappe.db.get_value('Item', self.item_code, 'item_name')
     
-    def format_data(self):
+    def format_data(self) -> None:
         """Format data for consistency"""
         if self.asset_name:
             self.asset_name = self.asset_name.strip().title()
     
-    def on_update(self):
+    def on_update(self) -> None:
         """Called after document is saved"""
         # Update asset statistics
         self.update_asset_statistics()
@@ -256,7 +267,7 @@ class Asset(Document):
         # Log asset activity
         self.log_asset_activity()
     
-    def on_submit(self):
+    def on_submit(self) -> None:
         """Called after document is submitted"""
         # Create asset register entry
         self.create_asset_register_entry()
@@ -270,7 +281,7 @@ class Asset(Document):
         # Send confirmation
         self.send_submission_confirmation()
     
-    def on_cancel(self):
+    def on_cancel(self) -> None:
         """Called after document is cancelled"""
         # Reverse asset register entry
         self.reverse_asset_register_entry()
@@ -281,7 +292,7 @@ class Asset(Document):
         # Send cancellation notification
         self.send_cancellation_notification()
     
-    def before_trash(self):
+    def before_trash(self) -> None:
         """Called before deleting the document"""
         # Check if asset can be deleted
         if self.status == 'In Use':
@@ -291,17 +302,17 @@ class Asset(Document):
         if self.has_related_transactions():
             frappe.throw(_("Cannot delete asset with related transactions"))
     
-    def on_trash(self):
+    def on_trash(self) -> None:
         """Called after deleting the document"""
         # Clean up related data
         self.cleanup_related_data()
     
-    def generate_asset_id(self):
+    def generate_asset_id(self) -> str:
         """Generate unique asset ID"""
         import uuid
         return str(uuid.uuid4())[:8].upper()
     
-    def update_asset_statistics(self):
+    def update_asset_statistics(self) -> None:
         """Update asset statistics"""
         # Update category statistics
         frappe.db.sql("""
@@ -319,7 +330,7 @@ class Asset(Document):
             'category': self.asset_category
         })
     
-    def send_status_change_notification(self):
+    def send_status_change_notification(self) -> None:
         """Send notification for status change"""
         recipients = self.get_notification_recipients()
         
@@ -337,9 +348,9 @@ class Asset(Document):
                 }
             )
     
-    def get_notification_recipients(self):
+    def get_notification_recipients(self) -> List[str]:
         """Get list of notification recipients"""
-        recipients = []
+        recipients: List[str] = []
         
         # Add asset manager
         if self.asset_manager:
@@ -354,7 +365,7 @@ class Asset(Document):
         # Remove duplicates
         return list(set(recipients))
     
-    def log_asset_activity(self):
+    def log_asset_activity(self) -> None:
         """Log asset activity"""
         activity_log = frappe.get_doc({
             'doctype': 'Asset Activity Log',
@@ -365,7 +376,7 @@ class Asset(Document):
         })
         activity_log.insert(ignore_permissions=True)
     
-    def create_asset_register_entry(self):
+    def create_asset_register_entry(self) -> None:
         """Create entry in asset register"""
         register = frappe.get_doc({
             'doctype': 'Asset Register',
@@ -377,7 +388,7 @@ class Asset(Document):
         })
         register.insert()
     
-    def reverse_asset_register_entry(self):
+    def reverse_asset_register_entry(self) -> None:
         """Reverse asset register entry"""
         frappe.db.sql("""
             UPDATE `tabAsset Register`
@@ -385,13 +396,13 @@ class Asset(Document):
             WHERE asset = %(asset)s AND status != 'Cancelled'
         """, {'asset': self.name})
     
-    def update_inventory(self):
+    def update_inventory(self) -> None:
         """Update inventory if asset is linked to item"""
         if self.item_code:
             # Update item status
             frappe.db.set_value('Item', self.item_code, 'asset_status', self.status)
     
-    def schedule_maintenance(self):
+    def schedule_maintenance(self) -> None:
         """Schedule maintenance if required"""
         if self.maintenance_frequency and self.commissioning_date:
             next_maintenance_date = add_days(self.commissioning_date, self.maintenance_frequency)
@@ -406,7 +417,7 @@ class Asset(Document):
                 })
                 maintenance.insert()
     
-    def cancel_scheduled_maintenance(self):
+    def cancel_scheduled_maintenance(self) -> None:
         """Cancel scheduled maintenance"""
         frappe.db.sql("""
             UPDATE `tabAsset Maintenance Schedule`
@@ -414,7 +425,7 @@ class Asset(Document):
             WHERE asset = %(asset)s AND status = 'Scheduled'
         """, {'asset': self.name})
     
-    def send_submission_confirmation(self):
+    def send_submission_confirmation(self) -> None:
         """Send submission confirmation"""
         recipients = self.get_notification_recipients()
         
@@ -431,7 +442,7 @@ class Asset(Document):
                 }
             )
     
-    def send_cancellation_notification(self):
+    def send_cancellation_notification(self) -> None:
         """Send cancellation notification"""
         recipients = self.get_notification_recipients()
         
@@ -447,9 +458,9 @@ class Asset(Document):
                 }
             )
     
-    def has_related_transactions(self):
+    def has_related_transactions(self) -> bool:
         """Check if asset has related transactions"""
-        related_doctypes = ['Asset Maintenance', 'Asset Transfer', 'Asset Valuation']
+        related_doctypes: List[str] = ['Asset Maintenance', 'Asset Transfer', 'Asset Valuation']
         
         for doctype in related_doctypes:
             if frappe.db.exists(doctype, {'asset': self.name, 'docstatus': ['!=', 2]}):
@@ -457,7 +468,7 @@ class Asset(Document):
         
         return False
     
-    def cleanup_related_data(self):
+    def cleanup_related_data(self) -> None:
         """Clean up related data when asset is deleted"""
         # Delete activity logs
         frappe.db.delete('Asset Activity Log', {'asset': self.name})

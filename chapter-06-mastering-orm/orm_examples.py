@@ -377,7 +377,7 @@ class ORMExamples:
         }
     
     def bulk_insert_example(self):
-        """Example of bulk insert operations"""
+        """Example of bulk insert operations using frappe.db.sql for performance"""
         self.logger.info("Bulk insert example")
         
         # Prepare data for bulk insert
@@ -391,11 +391,30 @@ class ORMExamples:
                 'territory': 'United States'
             })
         
-        # Bulk insert
         import time
         start_time = time.time()
         
-        frappe.db.bulk_insert('Customer', customers_data)
+        # frappe.db.bulk_insert() does not exist in Frappe v14/v15.
+        # Use a single SQL INSERT with multiple value rows for true bulk performance.
+        import uuid
+        from frappe.utils import now_datetime
+        
+        now = now_datetime()
+        values = []
+        for d in customers_data:
+            name = frappe.generate_hash(length=10)
+            values.append(f"('{name}', '{d['customer_name']}', '{d['customer_group']}', "
+                          f"'{d['territory']}', '{frappe.session.user}', '{now}', "
+                          f"'{frappe.session.user}', '{now}')")
+        
+        if values:
+            frappe.db.sql("""
+                INSERT INTO `tabCustomer`
+                    (name, customer_name, customer_group, territory,
+                     owner, creation, modified_by, modified)
+                VALUES {}
+            """.format(", ".join(values)))
+            frappe.db.commit()
         
         end_time = time.time()
         duration = end_time - start_time
@@ -452,7 +471,7 @@ class ORMExamples:
         
         individual_time = time.time() - start_time
         
-        # Method 2: Bulk insert
+        # Method 2: Bulk SQL insert (frappe.db.bulk_insert does not exist in v14/v15)
         customers_data = []
         for i in range(50):
             customers_data.append({
@@ -462,8 +481,22 @@ class ORMExamples:
                 'customer_group': 'Individual'
             })
         
+        from frappe.utils import now_datetime
+        now = now_datetime()
+        values = []
+        for d in customers_data:
+            name = frappe.generate_hash(length=10)
+            values.append(f"('{name}', '{d['customer_name']}', 'Individual', "
+                          f"'{frappe.session.user}', '{now}', '{frappe.session.user}', '{now}')")
+        
         start_time = time.time()
-        frappe.db.bulk_insert('Customer', customers_data)
+        if values:
+            frappe.db.sql("""
+                INSERT INTO `tabCustomer`
+                    (name, customer_name, customer_group, owner, creation, modified_by, modified)
+                VALUES {}
+            """.format(", ".join(values)))
+            frappe.db.commit()
         bulk_time = time.time() - start_time
         
         return {
@@ -543,14 +576,14 @@ class ORMExamples:
             }
     
     def savepoint_example(self):
-        """Example of savepoints"""
+        """Example of savepoints using raw SQL (Frappe v14/v15 has no public savepoint API)"""
         self.logger.info("Savepoint example")
         
         try:
             frappe.db.begin()
             
-            # First savepoint
-            frappe.db.savepoint('customer_created')
+            # First savepoint via raw SQL
+            frappe.db.sql("SAVEPOINT customer_created")
             
             customer = frappe.new_doc('Customer')
             customer.customer_name = 'Savepoint Customer'
@@ -559,8 +592,8 @@ class ORMExamples:
             customer.insert()
             
             try:
-                # Second savepoint
-                frappe.db.savepoint('order_created')
+                # Second savepoint via raw SQL
+                frappe.db.sql("SAVEPOINT order_created")
                 
                 sales_order = frappe.new_doc('Sales Order')
                 sales_order.customer = customer.name
@@ -569,8 +602,8 @@ class ORMExamples:
                 sales_order.insert()
                 
             except Exception as e:
-                # Rollback to order savepoint
-                frappe.db.rollback_to_savepoint('order_created')
+                # Rollback to order savepoint via raw SQL
+                frappe.db.sql("ROLLBACK TO SAVEPOINT order_created")
                 self.logger.warning(f"Order creation failed, rolled back: {str(e)}")
             
             # Continue with customer creation

@@ -67,18 +67,28 @@ def check_low_stock_items():
 
 def send_low_stock_alert(items):
 	"""Send low stock alert to inventory managers"""
-	inventory_managers = frappe.get_all('User',
-		filters={'role': 'Stock Manager', 'enabled': 1},
-		pluck='email'
+	# Roles are stored in the 'Has Role' DocType, not directly on User.
+	inventory_managers = frappe.db.get_all(
+		'Has Role',
+		filters={'role': 'Stock Manager', 'parenttype': 'User'},
+		pluck='parent'
 	)
 	
+	# Filter to enabled users only and get their emails
 	if inventory_managers:
-		frappe.sendmail(
-			recipients=inventory_managers,
-			subject=_('Low Stock Alert: {0} items').format(len(items)),
-			template='low_stock_alert',
-			args={'items': items}
+		emails = frappe.db.get_all(
+			'User',
+			filters={'name': ['in', inventory_managers], 'enabled': 1},
+			pluck='email'
 		)
+		
+		if emails:
+			frappe.sendmail(
+				recipients=emails,
+				subject=_('Low Stock Alert: {0} items').format(len(items)),
+				template='low_stock_alert',
+				args={'items': items}
+			)
 
 def update_asset_depreciation():
 	"""Update depreciation for all assets"""
