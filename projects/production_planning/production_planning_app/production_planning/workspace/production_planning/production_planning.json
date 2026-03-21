@@ -1,0 +1,34 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"aB1cDe\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Production Plan\",\"col\":3}}]",
+ "creation": "2024-01-01 10:00:00.000000",
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "is_hidden": 0,
+ "label": "Production Planning",
+ "module": "Production Planning",
+ "name": "Production Planning",
+ "owner": "Administrator",
+ "public": 1,
+ "roles": [],
+ "shortcuts": [
+  {
+   "color": "Orange",
+   "label": "Production Plan",
+   "link_to": "Production Plan",
+   "type": "DocType"
+  }
+ ],
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Production Plan",
+   "link_count": 0,
+   "link_to": "Production Plan",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  }
+ ]
+}

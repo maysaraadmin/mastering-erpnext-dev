@@ -1,0 +1,34 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"vP1qRs\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vendor\",\"col\":3}}]",
+ "creation": "2024-01-01 10:00:00.000000",
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "is_hidden": 0,
+ "label": "Vendor Portal",
+ "module": "Vendor Portal",
+ "name": "Vendor Portal",
+ "owner": "Administrator",
+ "public": 1,
+ "roles": [],
+ "shortcuts": [
+  {
+   "color": "Green",
+   "label": "Vendor",
+   "link_to": "Vendor",
+   "type": "DocType"
+  }
+ ],
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Vendor",
+   "link_count": 0,
+   "link_to": "Vendor",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  }
+ ]
+}
