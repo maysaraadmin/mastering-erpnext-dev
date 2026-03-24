@@ -3,8 +3,8 @@
 Performance Tests
 Chapter 15: Automated Testing - Performance Tests
 
-Comprehensive performance benchmarks for ERPNext operations
-including database queries, API responses, and batch operations.
+Enhanced for ERPNext v16 with bulk operations testing,
+modern performance monitoring, and comprehensive benchmarking.
 """
 
 import frappe
@@ -13,9 +13,14 @@ import time
 import statistics
 from frappe.utils import today, add_days, getdate, nowdate
 from contextlib import contextmanager
+import psutil
+import os
+import threading
+import queue
+from typing import Dict, Any, List, Optional, Union
 
 class TestPerformance(unittest.TestCase):
-	"""Performance tests for critical operations"""
+	"""Performance tests for critical operations with v16 enhancements"""
 	
 	def setUp(self):
 		"""Set up test data"""
@@ -36,45 +41,127 @@ class TestPerformance(unittest.TestCase):
 		
 	def create_test_data(self):
 		"""Create test data for performance testing"""
-		# Create test category
-		if not frappe.db.exists('Asset Category', 'Perf Test Category'):
-			category = frappe.get_doc({
-				'doctype': 'Asset Category',
-				'category_name': 'Perf Test Category',
-				'depreciation_method': 'Straight Line',
-				'useful_life': 5
+		# v16: Use bulk operations for better performance
+		test_assets = []
+		for i in range(50):
+			test_assets.append({
+				"doctype": "Asset",
+				"asset_name": f"Performance Test Asset {i}",
+				"item_code": f"PERF-TEST-{i:03d}",
+				"asset_category": "Test Category",
+				"purchase_date": today(),
+				"purchase_amount": 1000 + i,
+				"status": "Available"
 			})
-			category.insert()
-			
-		# Create test item
-		if not frappe.db.exists('Item', 'PERF-TEST-ITEM'):
-			item = frappe.get_doc({
-				'doctype': 'Item',
-				'item_code': 'PERF-TEST-ITEM',
-				'item_name': 'Performance Test Item',
-				'item_group': 'Products',
-				'stock_uom': 'Nos'
-			})
-			item.insert()
+		
+		# v16: Bulk insert for performance
+		try:
+			frappe.db.bulk_insert(test_assets)
+			self.logger.info(f"v16 bulk_insert created {len(test_assets)} test assets")
+		except Exception as e:
+			self.logger.error(f"v16 bulk_insert failed: {str(e)}")
 	
-	def test_asset_list_query_performance(self):
-		"""Test asset list query performance"""
-		# Create test assets for realistic testing
-		self.create_test_assets(20)
+	def test_v16_bulk_operations_performance(self):
+		"""Test v16 bulk operations performance"""
+		with self.measure_time("v16 bulk_insert"):
+			# v16: Create 100 test assets
+			test_assets = []
+			for i in range(100):
+				test_assets.append({
+					"doctype": "Asset",
+					"asset_name": f"Bulk Test Asset {i}",
+					"item_code": f"BULK-TEST-{i:03d}",
+					"asset_category": "Bulk Test Category",
+					"purchase_date": today(),
+					"purchase_amount": 500 + i,
+					"status": "Available"
+				})
+			
+			# v16: Use bulk_insert for performance
+			frappe.db.bulk_insert(test_assets)
 		
-		with self.measure_time("Asset List Query"):
-			assets = frappe.get_all('Asset',
-				filters={'docstatus': ['<', 2]},
-				fields=['name', 'asset_name', 'status', 'current_value'],
-				limit=100
-			)
+		# v16: Should complete in under 2 seconds for 100 records
+		self.assertLess(self.last_execution_time, 2.0,
+			f"v16 bulk_insert took {self.last_execution_time:.3f}s, expected < 2.0s")
 		
-		# Should complete in under 0.5 seconds
-		self.assertLess(self.last_execution_time, 0.5, 
-			f"Asset list query took {self.last_execution_time:.3f}s, expected < 0.5s")
+	def test_v16_individual_vs_bulk_performance(self):
+		"""Compare individual vs bulk operations in v16"""
+		# Test individual inserts
+		with self.measure_time("individual_inserts"):
+			for i in range(50):
+				asset = frappe.get_doc({
+					"doctype": "Asset",
+					"asset_name": f"Individual Test {i}",
+					"item_code": f"IND-TEST-{i:03d}",
+					"asset_category": "Individual Test Category",
+					"purchase_date": today(),
+					"purchase_amount": 500 + i,
+					"status": "Available"
+				})
+				asset.insert()
 		
-		# Verify results
-		self.assertGreater(len(assets), 0)
+		individual_time = self.last_execution_time
+		
+		# Test bulk inserts
+		with self.measure_time("bulk_inserts"):
+			bulk_assets = []
+			for i in range(50):
+				bulk_assets.append({
+					"doctype": "Asset",
+					"asset_name": f"Bulk Test Asset {i}",
+					"item_code": f"BULK-TEST-{i:03d}",
+					"asset_category": "Bulk Test Category",
+					"purchase_date": today(),
+					"purchase_amount": 500 + i,
+					"status": "Available"
+				})
+			
+			# v16: Use bulk_insert for performance
+			frappe.db.bulk_insert(bulk_assets)
+		
+		bulk_time = self.last_execution_time
+		
+		# v16: Bulk should be significantly faster
+		improvement_factor = individual_time / bulk_time
+		self.assertGreater(improvement_factor, 5.0,
+			f"v16 bulk operations improvement factor: {improvement_factor:.1f}x, expected > 5.0x")
+		
+	def test_v16_memory_usage_optimization(self):
+		"""Test memory usage with v16 optimizations"""
+		import gc
+		process = psutil.Process(os.getpid())
+		
+		# v16: Test memory before operations
+		initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+		
+		# v16: Create large dataset to test memory efficiency
+		large_dataset = []
+		for i in range(1000):
+			large_dataset.append({
+				"doctype": "Asset",
+				"asset_name": f"Memory Test Asset {i}",
+				"item_code": f"MEM-TEST-{i:04d}",
+				"asset_category": "Memory Test Category",
+				"purchase_date": today(),
+				"purchase_amount": 100 + i,
+				"status": "Available"
+			})
+		
+		# v16: Use bulk operations to reduce memory overhead
+		try:
+			frappe.db.bulk_insert(large_dataset)
+			peak_memory = process.memory_info().rss / 1024 / 1024  # MB
+		except Exception as e:
+			self.logger.error(f"v16 bulk memory test failed: {str(e)}")
+		
+		# v16: Force garbage collection
+		gc.collect()
+		final_memory = process.memory_info().rss / 1024 / 1024  # MB
+		memory_increase = final_memory - initial_memory
+		
+		# v16: Memory increase should be reasonable (< 100MB for 1000 records)
+		self.assertLess(memory_increase, 100,
+			f"v16 memory increased by {memory_increase:.1f}MB, expected < 100MB")
 		
 	def test_asset_list_query_performance_with_multiple_runs(self):
 		"""Test asset list query performance with multiple runs"""

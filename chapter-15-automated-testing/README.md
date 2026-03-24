@@ -3,34 +3,39 @@
 ## 🎯 Learning Objectives
 
 By the end of this chapter, you will master:
-- **Understanding Frappe's** testing philosophy and architecture
-- **Writing effective** unit tests for DocType controllers
-- **Testing server-side** methods and whitelisted APIs
-- **Managing fixtures** and test data effectively
+- **Understanding Frappe's** v16 testing framework and architecture
+- **Writing effective** unit tests for DocType controllers with type hints
+- **Testing server-side** methods and whitelisted APIs with v16 security
+- **Managing fixtures** and test data effectively for v16
 - **Building integration** tests for complex workflows
-- **Setting up CI/CD** pipelines for automated testing
+- **Setting up CI/CD** pipelines for automated testing with v16 compatibility
+- **Performance testing** with v16 bulk operations and optimization
+- **E2E testing** with modern browser automation tools
 
 ## 📚 Chapter Topics
 
-### 15.1 The Frappe Testing Framework
+### 15.1 The Frappe v16 Testing Framework
 
-**Understanding Testing Architecture**
+**Understanding Testing Architecture for v16**
 
 ```python
-# Frappe testing framework components
+# Frappe v16 testing framework components
 testing_components = {
-    "Test Runner": "frappe.tests.utils.FrappeTestCase",
-    "Test Database": "Separate test database with prefix 'test_'",
-    "Fixtures": "JSON-based test data management",
-    "Integration Tests": "Multi-document workflow testing",
-    "UI Tests": "Selenium-based interface testing",
-    "API Tests": "REST endpoint testing"
+    "Test Runner": "frappe.tests.utils.FrappeTestCase with enhanced type hints",
+    "Test Database": "Separate test database with prefix 'test_' and v16 optimizations",
+    "Fixtures": "JSON-based test data management with v16 bulk operations",
+    "Integration Tests": "Multi-document workflow testing with v16 mock services",
+    "UI Tests": "Selenium-based interface testing with v16 browser automation",
+    "API Tests": "REST endpoint testing with v16 security validation",
+    "Performance Tests": "v16 bulk operations and performance benchmarking"
 }
 
-# Test execution flow
-# 1. Setup test environment
-# 2. Load fixtures
-# 3. Run tests
+# v16 Test execution flow
+# 1. Setup test environment with v16 optimizations
+# 2. Load fixtures using v16 bulk operations
+# 3. Run tests with proper type checking
+# 4. Clean up test data with v16 transaction management
+# 5. Generate reports with v16 performance metrics
 # 4. Clean up test data
 # 5. Generate reports
 ```

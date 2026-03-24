@@ -522,6 +522,55 @@ class ORMExamples:
             "improvement_factor": individual_time / bulk_time
         }
     
+    def demonstrate_v16_bulk_operations(self):
+        """Demonstrate v16 bulk operations for better performance"""
+        self.logger.info("=== v16 Bulk Operations Demo ===")
+        
+        # v16: Bulk insert with frappe.db.bulk_insert()
+        start_time = time.time()
+        
+        customers_to_insert = []
+        for i in range(100):
+            customers_to_insert.append({
+                'doctype': 'Customer',
+                'customer_name': f'Bulk Customer {i}',
+                'email': f'bulk{i}@example.com',
+                'customer_group': 'Individual'
+            })
+        
+        # v16: Use official bulk_insert method
+        try:
+            frappe.db.bulk_insert(customers_to_insert)
+            bulk_insert_time = time.time() - start_time
+            self.logger.info(f"v16 bulk_insert completed in {bulk_insert_time:.3f}s")
+        except Exception as e:
+            self.logger.error(f"v16 bulk_insert failed: {str(e)}")
+        
+        # v16: Bulk update with frappe.db.bulk_update()
+        start_time = time.time()
+        
+        customers_to_update = []
+        for i in range(50):
+            customers_to_update.append({
+                'doctype': 'Customer',
+                'name': f'BULK-CUST-{i:03d}',
+                'mobile_no': f'+12345678{i:03d}'
+            })
+        
+        # v16: Use official bulk_update method
+        try:
+            frappe.db.bulk_update(customers_to_update)
+            bulk_update_time = time.time() - start_time
+            self.logger.info(f"v16 bulk_update completed in {bulk_update_time:.3f}s")
+        except Exception as e:
+            self.logger.error(f"v16 bulk_update failed: {str(e)}")
+        
+        return {
+            "bulk_insert_time": bulk_insert_time,
+            "bulk_update_time": bulk_update_time,
+            "total_records": len(customers_to_insert) + len(customers_to_update)
+        }
+    
     # =============================================================================
     # TRANSACTION MANAGEMENT
     # =============================================================================
