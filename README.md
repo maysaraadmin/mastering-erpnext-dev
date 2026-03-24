@@ -3,13 +3,14 @@
 ![ERPNext](https://img.shields.io/badge/ERPNext-v16-blue)
 ![Frappe](https://img.shields.io/badge/Frappe-v16-blue)
 ![Tests](https://img.shields.io/badge/Tests-34%20passing-brightgreen)
+![Chapters](https://img.shields.io/badge/Chapters-32-orange)
 ![License](https://img.shields.io/badge/License-GPL-blue)
 
 A comprehensive technical guide for developers who want to master Frappe Framework and ERPNext development — from environment setup to production deployment.
 
 ## What's Inside
 
-- **21 chapters** covering the full ERPNext development lifecycle
+- **32 chapters** covering the full ERPNext development lifecycle
 - **3 production-ready apps** — Asset Management, Production Planning, Vendor Portal
 - **34 passing tests** — unit, integration, E2E, and performance
 - **Fully compatible with ERPNext v16 / Frappe v16**
@@ -86,6 +87,17 @@ mastering-erpnext-dev/
 ├── chapter-19-workflows/
 ├── chapter-20-translations-i18n/
 ├── chapter-21-virtual-doctypes/
+├── chapter-22-patches-and-migrations/
+├── chapter-23-asset-bundling/
+├── chapter-24-monkey-patching/
+├── chapter-25-advanced-bench/
+├── chapter-26-api-patterns/
+├── chapter-27-realtime-and-ui/
+├── chapter-28-devops-and-deployment/
+├── chapter-29-erpnext-customization/
+├── chapter-30-client-scripting-advanced/
+├── chapter-31-installation-guide/
+├── chapter-32-snippets-and-reference/
 │
 └── projects/
     ├── asset_management/           # Asset Management app
@@ -181,6 +193,17 @@ All code has been updated and verified against **ERPNext v16.9.1 / Frappe v16.11
 | 19 | Workflows | States, transitions, docstatus, JS/Python APIs |
 | 20 | Translations & i18n | CSV translation files, `_()`, context, language codes |
 | 21 | Virtual DocTypes | Virtual DocTypes, Virtual Fields, external backends |
+| 22 | Patches & Migrations | patches.txt, pre/post model sync, safe data migration |
+| 23 | Asset Bundling | Webpack, JS/CSS bundling, public assets, build pipeline |
+| 24 | Monkey Patching | Override classes, methods, whitelisted functions |
+| 25 | Advanced Bench | Multi-site, custom commands, bench internals, supervisor |
+| 26 | API Patterns | REST design, versioning, authentication, rate limiting |
+| 27 | Realtime & UI | Socket.IO, frappe.realtime, custom pages, workspaces |
+| 28 | DevOps & Deployment | Docker Compose, nginx, SSL, monitoring, backups |
+| 29 | ERPNext Customization | Custom Fields, Property Setters, Fixtures, hooks.py deep dive |
+| 30 | Advanced Client Scripting | Child tables, list view, dialogs, overrides, Jinja filters |
+| 31 | Installation Guide | Bare-metal, Docker, devcontainers, app boilerplate |
+| 32 | Snippets & Reference | Python/JS patterns, API reference, bench commands, shortcuts |
 
 ---
 
