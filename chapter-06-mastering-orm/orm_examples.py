@@ -356,16 +356,19 @@ class ORMExamples:
             FROM `tabCustomer` c
             WHERE c.name IN (
                 SELECT customer 
-                FROM `tabSales Order`
+                FROM `tabSales Order` so
                 WHERE docstatus = 1
                 GROUP BY customer
-                HAVING SUM(grand_total) > 10000
+                HAVING SUM(so.grand_total) > 100000
             )
-        """, as_dict=True)
+        """)
+            
+        high_value_results = high_value_customers if high_value_customers else {}
+        self.logger.info(f"High-value customers query completed: {len(high_value_customers)}")
         
         return {
-            "with_orders": customers_with_orders,
-            "high_value": high_value_customers
+            "high_value_results": high_value_results,
+            "execution_time": self.last_execution_time
         }
     
     # =============================================================================
@@ -507,11 +510,12 @@ class ORMExamples:
         start_time = time.time()
         if values:
             # SECURE: Use parameterized query to prevent SQL injection
-            placeholders = ', '.join(['%s'] * len(fields))
+            placeholders = ', '.join(['%s'] * len(values[0]))
             frappe.db.sql("""
                 INSERT INTO `tabCustomer`
                     (name, customer_name, customer_group, owner, creation, modified_by, modified)
                 VALUES ({})
+            """.format(placeholders), tuple(values))
             """.format(placeholders), tuple(values)))
             frappe.db.commit()
         bulk_time = time.time() - start_time
