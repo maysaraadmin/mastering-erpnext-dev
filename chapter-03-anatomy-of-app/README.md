@@ -1317,3 +1317,79 @@ site1.local → installed: [frappe, hr]      → has tabEmployee (HR schema)
 site2.local → installed: [frappe, payroll] → has tabEmployee (Payroll schema)
 # No conflict — completely isolated databases
 ```
+
+
+---
+
+## 📌 Addendum: How to Rename a Module in Frappe
+
+Renaming a module requires changes in both the UI and the source code. Do all four steps — skipping any one causes "Module not found" errors.
+
+### Step 1: Rename via Module Def (UI)
+
+1. Go to **Module Def** from the Desk
+2. Open the module you want to rename
+3. Click **Rename**
+4. If a module with the new name already exists, select **"Merge with existing"**
+5. Confirm
+
+### Step 2: Rename the Folder in Source Code
+
+```
+apps/your_app/your_app/old_module_name/
+                          ↓
+apps/your_app/your_app/new_module_name/
+```
+
+Use `snake_case` for the folder name.
+
+### Step 3: Update DocType JSON Files
+
+For every DocType under the renamed module, open its `.json` file and update the `"module"` field:
+
+```
+apps/your_app/your_app/new_module_name/doctype/your_doctype/your_doctype.json
+```
+
+```json
+{
+    "module": "New Module Name"
+}
+```
+
+The `"module"` value must be **Title Case** (e.g., `"Parent Attachments"`), while the folder name is `snake_case` (e.g., `parent_attachments`).
+
+### Step 4: Update `modules.txt`
+
+```
+apps/your_app/your_app/modules.txt
+```
+
+Add the new module name and remove the old one:
+
+```txt
+New Module Name
+Other Module
+```
+
+### Step 5: Rebuild and Migrate
+
+```bash
+bench build
+bench clear-cache
+bench migrate
+bench restart
+```
+
+### Common Mistakes
+
+| Mistake | Result |
+|---|---|
+| Folder name doesn't match `modules.txt` | "Module not found" error |
+| `"module"` field in JSON not updated | DocTypes appear under wrong module |
+| Old module name left in `modules.txt` | Duplicate module entries |
+| Skipping `bench migrate` | Database not synced with new module name |
+
+### When a Patch Is Also Needed
+
+If the module rename affects an **existing production site** (not a fresh install), write a patch to handle the rename for sites already running the old module name. See chapter 22 for the patch pattern.

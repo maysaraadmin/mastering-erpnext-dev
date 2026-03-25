@@ -10,6 +10,8 @@ By the end of this chapter, you will master:
 - **How** print format caching and optimization work internally
 - **Advanced patterns** for building high-performance print formats
 - **Performance optimization** techniques for complex template rendering
+- **Custom Jinja filters** for advanced template transformations
+- **Template inheritance** and modular design patterns
 
 ## 📚 Chapter Topics
 
@@ -33,6 +35,7 @@ class PrintFormatProcessor:
         self.cache_manager = PrintFormatCacheManager()
         self.performance_monitor = PrintFormatPerformanceMonitor()
         self.renderer = PrintRenderer()
+        self.jinja_filters = CustomJinjaFilters()
         
         # Load print format configuration
         self.load_print_format_config()
@@ -2301,27 +2304,793 @@ Key points:
 - `get_pdf()` respects the `pdf_engine` key in `site_config.json` (`wkhtmltopdf` by default, `weasyprint` if set).
 - Always attach generated PDFs as `File` documents so they appear in the document's attachment list.
 
-### A.2 Setting a Default Print Format via `hooks.py`
+### 10.7 Custom Jinja Filters
 
-Register a default print format for a DocType so it is pre-selected whenever a user opens the print dialog.
+**Overview**
+
+Jinja filters are powerful tools in Frappe that allow you to transform and format data directly in templates. This guide explains how to create and implement custom Jinja filters in your Frappe applications.
+
+**What are Jinja Filters?**
+
+Jinja filters are functions that transform data values. They can be used in:
+- Print formats
+- Web templates
+- Email templates
+- Report templates
+- Any Jinja template context
+
+**Example Usage:**
+```jinja
+{{ 1234.56 | english_to_arabic_numbers }}
+<!-- Output: ١٢٣٤.٥٦ -->
+
+{{ 1500.75 | currency_to_arabic_words }}
+<!-- Output: ألف وخمسمائة جنيه وخمسة وسبعون قرشاً -->
+```
+
+**Creating Custom Jinja Filters**
+
+#### Step 1: Create the Filter Function
+
+Create a Python file in your app's utils directory:
+
+```python
+# apps/your_app/your_app/utils/custom_jinja_filters/your_filter.py
+
+def your_custom_filter(value, *args, **kwargs):
+    """
+    Custom Jinja filter function
+    
+    Args:
+        value: The input value to be processed
+        *args: Additional positional arguments
+        **kwargs: Additional keyword arguments
+        
+    Returns:
+        Processed value
+    """
+    # Your filter logic here
+    return processed_value
+```
+
+#### Step 2: Register the Filter
+
+Register your filter in your app's `hooks.py`:
+
+```python
+# apps/your_app/your_app/hooks.py
+
+# Register custom Jinja filters
+jinja_filters = {
+    "your_filter": "your_app.utils.custom_jinja_filters.your_filter.your_custom_filter"
+}
+```
+
+#### Step 3: Use in Templates
+
+Now you can use your filter in any Jinja template:
+
+```jinja
+{{ some_value | your_filter }}
+{{ some_value | your_filter(arg1, arg2) }}
+```
+
+**Advanced Custom Jinja Filters**
+
+#### Arabic Number Converter
+
+```python
+# your_app/utils/custom_jinja_filters/arabic_filters.py
+
+def english_to_arabic_numbers(value):
+    """Convert English numbers to Arabic numbers"""
+    if not value:
+        return value
+    
+    # Mapping of English to Arabic digits
+    arabic_digits = {
+        '0': '٠', '1': '١', '2': '٢', '3': '٣', '4': '٤',
+        '5': '٥', '6': '٦', '7': '٧', '8': '٨', '9': '٩'
+    }
+    
+    # Convert string representation
+    result = str(value)
+    for english, arabic in arabic_digits.items():
+        result = result.replace(english, arabic)
+    
+    return result
+
+def currency_to_arabic_words(amount, currency='جنيه'):
+    """Convert currency amount to Arabic words"""
+    if not amount:
+        return ''
+    
+    # Convert amount to integer and decimal parts
+    amount_str = str(float(amount))
+    if '.' in amount_str:
+        integer_part, decimal_part = amount_str.split('.')
+        decimal_part = decimal_part[:2]  # Take first 2 decimal places
+    else:
+        integer_part = amount_str
+        decimal_part = '00'
+    
+    # Convert to Arabic words (simplified version)
+    integer_words = number_to_arabic_words(integer_part)
+    decimal_words = number_to_arabic_words(decimal_part)
+    
+    result = f"{integer_words} {currency}"
+    
+    if decimal_words and decimal_words != 'صفر':
+        result += f" و {decimal_words} قرشاً"
+    
+    return result
+
+def number_to_arabic_words(number):
+    """Convert number to Arabic words (simplified)"""
+    if not number or number == '0':
+        return 'صفر'
+    
+    # This is a simplified implementation
+    # In practice, you'd use a more comprehensive number-to-words library
+    units = ['صفر', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة']
+    tens = ['', 'عشرة', 'عشرون', 'ثلاثون', 'أربعون', 'خمسون', 'ستون', 'سبعون', 'ثمانون', 'تسعون']
+    
+    # Simplified logic for demonstration
+    if len(number) == 1:
+        return units[int(number)]
+    elif len(number) == 2:
+        if number[0] == '1':
+            return units[int(number[1])] + ' عشر'
+        else:
+            return units[int(number[0])] + ' و ' + tens[int(number[1])]
+    else:
+        # For larger numbers, you'd implement more complex logic
+        return number  # Placeholder
+    
+    return number
+```
+
+#### Date and Time Filters
+
+```python
+# your_app/utils/custom_jinja_filters/date_filters.py
+
+import frappe
+from datetime import datetime, timedelta
+from hijri_converter import Gregorian
+
+def hijri_date(value, format="%Y-%m-%d"):
+    """Convert Gregorian date to Hijri date"""
+    if not value:
+        return value
+    
+    try:
+        # Parse input date
+        if isinstance(value, str):
+            date_obj = datetime.strptime(value, "%Y-%m-%d")
+        elif isinstance(value, datetime):
+            date_obj = value
+        else:
+            return value
+        
+        # Convert to Hijri
+        hijri = Gregorian(date_obj.year, date_obj.month, date_obj.day).to_hijri()
+        
+        # Format output
+        if format == "arabic":
+            return f"{hijri.day} {get_arabic_month(hijri.month)} {hijri.year} هـ"
+        else:
+            return f"{hijri.year}-{hijri.month:02d}-{hijri.day:02d} هـ"
+            
+    except Exception:
+        return value
+
+def get_arabic_month(month):
+    """Get Arabic month name"""
+    arabic_months = [
+        'محرم', 'صفر', 'ربيع الأول', 'ربيع الثاني', 'جمادى الأولى', 'جمادى الثانية',
+        'رجب', 'شعبان', 'رمضان', 'شوال', 'ذو القعدة', 'ذو الحجة'
+    ]
+    return arabic_months[month - 1]
+
+def relative_time(value):
+    """Convert date to relative time (e.g., "2 days ago")"""
+    if not value:
+        return value
+    
+    try:
+        if isinstance(value, str):
+            date_obj = frappe.utils.get_datetime(value)
+        else:
+            date_obj = value
+        
+        now = frappe.utils.now()
+        diff = now - date_obj
+        
+        days = diff.days
+        hours = diff.seconds // 3600
+        minutes = (diff.seconds % 3600) // 60
+        
+        if days > 0:
+            return f"{days} day{'s' if days != 1 else ''} ago"
+        elif hours > 0:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        elif minutes > 0:
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        else:
+            return "Just now"
+            
+    except Exception:
+        return value
+
+def format_date_arabic(value, format="%d %B %Y"):
+    """Format date in Arabic"""
+    if not value:
+        return value
+    
+    try:
+        date_obj = frappe.utils.get_datetime(value)
+        
+        # Arabic month names
+        arabic_months = [
+            'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+            'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+        ]
+        
+        # Format components
+        day = date_obj.day
+        month = arabic_months[date_obj.month - 1]
+        year = date_obj.year
+        
+        # Apply format
+        result = format.replace('%d', str(day))
+        result = result.replace('%B', month)
+        result = result.replace('%Y', str(year))
+        
+        return result
+        
+    except Exception:
+        return value
+```
+
+#### String and Text Filters
+
+```python
+# your_app/utils/custom_jinja_filters/text_filters.py
+
+def camel_case(value):
+    """Convert string to camel case"""
+    if not value:
+        return value
+    
+    # Remove special characters and split by spaces/underscores
+    words = []
+    current_word = ''
+    
+    for char in value:
+        if char.isalnum():
+            current_word += char.lower()
+        else:
+            if current_word:
+                words.append(current_word)
+                current_word = ''
+    
+    if current_word:
+        words.append(current_word)
+    
+    # Convert to camel case
+    if not words:
+        return value
+    
+    result = words[0]
+    for word in words[1:]:
+        result += word.capitalize()
+    
+    return result
+
+def snake_case(value):
+    """Convert string to snake case"""
+    if not value:
+        return value
+    
+    # Convert camel case to snake case
+    import re
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', value)
+    s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
+    return s2.lower()
+
+def truncate_words(value, length=30, suffix='...'):
+    """Truncate string to specified number of words"""
+    if not value:
+        return value
+    
+    words = value.split()
+    
+    if len(words) <= length:
+        return value
+    
+    truncated = ' '.join(words[:length]) + suffix
+    return truncated
+
+def highlight_search(value, search_term, highlight_class='highlight'):
+    """Highlight search term in text"""
+    if not value or not search_term:
+        return value
+    
+    # Escape HTML entities
+    import html
+    escaped_value = html.escape(value)
+    escaped_search = html.escape(search_term)
+    
+    # Highlight search term
+    highlighted = escaped_value.replace(
+        escaped_search,
+        f'<span class="{highlight_class}">{escaped_search}</span>'
+    )
+    
+    return highlighted
+
+def format_phone(value, country_code='+20'):
+    """Format phone number"""
+    if not value:
+        return value
+    
+    # Remove all non-digit characters
+    digits = ''.join(filter(str.isdigit, str(value)))
+    
+    if not digits:
+        return value
+    
+    # Format based on length
+    if len(digits) == 10:
+        # Egyptian mobile number
+        return f"{country_code} {digits[:1]} {digits[1:4]} {digits[4:7]} {digits[7:]}"
+    elif len(digits) == 11 and digits.startswith('0'):
+        # Egyptian mobile with leading zero
+        return f"{country_code} {digits[1]} {digits[2:5]} {digits[5:8]} {digits[8:]}"
+    else:
+        # Return as-is if format is unknown
+        return value
+```
+
+#### Currency and Number Filters
+
+```python
+# your_app/utils/custom_jinja_filters/currency_filters.py
+
+def format_currency_arabic(value, currency='جنيه'):
+    """Format currency amount in Arabic"""
+    if not value:
+        return value
+    
+    try:
+        amount = float(value)
+        
+        # Format with thousands separator
+        formatted_amount = "{:,.2f}".format(amount)
+        
+        # Replace English digits with Arabic
+        arabic_digits = {
+            '0': '٠', '1': '١', '2': '٢', '3': '٣', '4': '٤',
+            '5': '٥', '6': '٦', '7': '٧', '8': '٨', '9': '٩'
+        }
+        
+        for english, arabic in arabic_digits.items():
+            formatted_amount = formatted_amount.replace(english, arabic)
+        
+        return f"{formatted_amount} {currency}"
+        
+    except (ValueError, TypeError):
+        return value
+
+def percentage_change(old_value, new_value):
+    """Calculate percentage change between two values"""
+    try:
+        old = float(old_value)
+        new = float(new_value)
+        
+        if old == 0:
+            return 0 if new == 0 else float('inf')
+        
+        change = ((new - old) / old) * 100
+        return round(change, 2)
+        
+    except (ValueError, TypeError):
+        return 0
+
+def format_file_size(size_bytes):
+    """Format file size in human readable format"""
+    if not size_bytes:
+        return '0 Bytes'
+    
+    try:
+        size = float(size_bytes)
+        
+        units = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+        unit_index = 0
+        
+        while size >= 1024 and unit_index < len(units) - 1:
+            size /= 1024
+            unit_index += 1
+        
+        return f"{size:.1f} {units[unit_index]}"
+        
+    except (ValueError, TypeError):
+        return '0 Bytes'
+
+def ordinal_suffix(value):
+    """Add ordinal suffix to number (1st, 2nd, 3rd, etc.)"""
+    try:
+        number = int(value)
+        
+        if 11 <= number % 100 <= 13:
+            suffix = 'th'
+        else:
+            suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number % 10, 'th')
+        
+        return f"{number}{suffix}"
+        
+    except (ValueError, TypeError):
+        return value
+```
+
+#### Business Logic Filters
+
+```python
+# your_app/utils/custom_jinja_filters/business_filters.py
+
+import frappe
+
+def customer_status(customer_name):
+    """Get customer status information"""
+    if not customer_name:
+        return {}
+    
+    try:
+        # Get customer details
+        customer = frappe.get_value('Customer', customer_name, 
+            ['customer_name', 'customer_group', 'territory', 'credit_limit', 'credit_balance'], as_dict=True)
+        
+        if not customer:
+            return {}
+        
+        # Calculate credit utilization
+        credit_utilization = 0
+        if customer.credit_limit and customer.credit_limit > 0:
+            credit_utilization = (customer.credit_balance / customer.credit_limit) * 100
+        
+        # Determine status
+        if credit_utilization > 90:
+            status = 'Critical'
+            status_color = 'red'
+        elif credit_utilization > 70:
+            status = 'Warning'
+            status_color = 'orange'
+        else:
+            status = 'Good'
+            status_color = 'green'
+        
+        return {
+            'status': status,
+            'status_color': status_color,
+            'credit_utilization': round(credit_utilization, 2),
+            'available_credit': customer.credit_limit - customer.credit_balance
+        }
+        
+    except Exception:
+        return {}
+
+def document_age(doc_name, doctype):
+    """Calculate document age in days"""
+    if not doc_name or not doctype:
+        return 0
+    
+    try:
+        creation = frappe.db.get_value(doctype, doc_name, 'creation')
+        if creation:
+            age = frappe.utils.time_diff_in_days(frappe.utils.now(), creation)
+            return max(0, age)
+    except Exception:
+        pass
+    
+    return 0
+
+def workflow_status(doctype, docname):
+    """Get document workflow status"""
+    if not doctype or not docname:
+        return {}
+    
+    try:
+        # Check if document has workflow
+        workflow_name = frappe.db.get_value('Workflow', 
+            {'document_type': doctype}, 'name')
+        
+        if not workflow_name:
+            return {'has_workflow': False}
+        
+        # Get current workflow state
+        workflow_state = frappe.db.get_value(doctype, docname, 'workflow_state')
+        
+        # Get next possible actions
+        next_actions = []
+        if workflow_state:
+            actions = frappe.get_all('Workflow Action',
+                filters={
+                    'workflow': workflow_name,
+                    'state': workflow_state
+                },
+                fields=['action', 'next_state', 'allowed_roles']
+            )
+            
+            user_roles = frappe.get_roles()
+            for action in actions:
+                if any(role in user_roles for role in action.allowed_roles):
+                    next_actions.append({
+                        'action': action.action,
+                        'next_state': action.next_state
+                    })
+        
+        return {
+            'has_workflow': True,
+            'current_state': workflow_state,
+            'next_actions': next_actions
+        }
+        
+    except Exception:
+        return {'has_workflow': False}
+
+def outstanding_amount(doctype, docname):
+    """Calculate outstanding amount for document"""
+    if not doctype or not docname:
+        return 0
+    
+    try:
+        if doctype in ['Sales Invoice', 'Purchase Invoice']:
+            outstanding = frappe.db.get_value(doctype, docname, 'outstanding_amount')
+            return outstanding or 0
+        elif doctype == 'Sales Order':
+            # Calculate from linked invoices
+            linked_invoices = frappe.get_all('Sales Invoice Item',
+                filters={'sales_order': docname},
+                fields=['parent']
+            )
+            
+            total_invoiced = 0
+            for invoice in linked_invoices:
+                total_invoiced += frappe.db.get_value('Sales Invoice', 
+                    invoice.parent, 'grand_total') or 0
+            
+            order_total = frappe.db.get_value('Sales Order', docname, 'grand_total') or 0
+            return order_total - total_invoiced
+        
+    except Exception:
+        pass
+    
+    return 0
+```
+
+#### Registering All Filters
 
 ```python
 # your_app/hooks.py
 
-# Map DocType → Print Format name (must exist in the database / fixtures)
-default_print_format = {
-    "Asset": "Asset Label",
-    "Sales Invoice": "Custom Sales Invoice",
+# Register all custom Jinja filters
+jinja_filters = {
+    # Number and currency filters
+    "english_to_arabic_numbers": "your_app.utils.custom_jinja_filters.arabic_filters.english_to_arabic_numbers",
+    "currency_to_arabic_words": "your_app.utils.custom_jinja_filters.arabic_filters.currency_to_arabic_words",
+    "format_currency_arabic": "your_app.utils.custom_jinja_filters.currency_filters.format_currency_arabic",
+    "percentage_change": "your_app.utils.custom_jinja_filters.currency_filters.percentage_change",
+    "format_file_size": "your_app.utils.custom_jinja_filters.currency_filters.format_file_size",
+    "ordinal_suffix": "your_app.utils.custom_jinja_filters.currency_filters.ordinal_suffix",
+    
+    # Date and time filters
+    "hijri_date": "your_app.utils.custom_jinja_filters.date_filters.hijri_date",
+    "relative_time": "your_app.utils.custom_jinja_filters.date_filters.relative_time",
+    "format_date_arabic": "your_app.utils.custom_jinja_filters.date_filters.format_date_arabic",
+    
+    # Text and string filters
+    "camel_case": "your_app.utils.custom_jinja_filters.text_filters.camel_case",
+    "snake_case": "your_app.utils.custom_jinja_filters.text_filters.snake_case",
+    "truncate_words": "your_app.utils.custom_jinja_filters.text_filters.truncate_words",
+    "highlight_search": "your_app.utils.custom_jinja_filters.text_filters.highlight_search",
+    "format_phone": "your_app.utils.custom_jinja_filters.text_filters.format_phone",
+    
+    # Business logic filters
+    "customer_status": "your_app.utils.custom_jinja_filters.business_filters.customer_status",
+    "document_age": "your_app.utils.custom_jinja_filters.business_filters.document_age",
+    "workflow_status": "your_app.utils.custom_jinja_filters.business_filters.workflow_status",
+    "outstanding_amount": "your_app.utils.custom_jinja_filters.business_filters.outstanding_amount"
 }
 ```
 
-Frappe reads `default_print_format` from every installed app's `hooks.py` and merges them. The value must match the `name` field of an existing **Print Format** document. Export the Print Format as a fixture so it travels with the app:
+**Using Custom Filters in Print Formats**
 
-```python
-# hooks.py — also export the print format as a fixture
-fixtures = [
-    {"dt": "Print Format", "filters": [["doc_type", "in", ["Asset", "Sales Invoice"]]]},
-]
+```html
+<!-- Print Format Example with Custom Filters -->
+<div class="print-format">
+    <div class="header">
+        <h2>{{ doc.name | english_to_arabic_numbers }}</h2>
+        <p>Date: {{ doc.creation | hijri_date("arabic") }}</p>
+        <p>Age: {{ doc.name | document_age("Sales Invoice") }} days</p>
+    </div>
+    
+    <div class="customer-info">
+        <h3>Customer Information</h3>
+        {% set customer_info = doc.customer | customer_status %}
+        <p>Status: <span class="badge badge-{{ customer_info.status_color }}">{{ customer_info.status }}</span></p>
+        <p>Credit Utilization: {{ customer_info.credit_utilization }}%</p>
+    </div>
+    
+    <div class="amounts">
+        <h3>Financial Information</h3>
+        <p>Total Amount: {{ doc.grand_total | format_currency_arabic }}</p>
+        <p>In Words: {{ doc.grand_total | currency_to_arabic_words }}</p>
+        <p>Outstanding: {{ doc.name | outstanding_amount("Sales Invoice") | format_currency_arabic }}</p>
+    </div>
+    
+    <div class="items">
+        <h3>Items</h3>
+        {% for item in doc.items %}
+        <div class="item-row">
+            <span>{{ item.item_code | camel_case }}</span>
+            <span>{{ item.qty | english_to_arabic_numbers }}</span>
+            <span>{{ item.rate | format_currency_arabic }}</span>
+            <span>{{ item.amount | format_currency_arabic }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <div class="footer">
+        <p>Document Age: {{ doc.name | document_age("Sales Invoice") }} days old</p>
+        <p>Generated: {{ frappe.utils.now() | relative_time }}</p>
+    </div>
+</div>
 ```
 
-Then run `bench export-fixtures` to write the JSON files into your app's `fixtures/` directory.
+**Performance Considerations**
+
+```python
+# your_app/utils/custom_jinja_filters/performance_filters.py
+
+from functools import lru_cache
+import frappe
+
+@lru_cache(maxsize=1000)
+def cached_currency_conversion(amount, from_currency, to_currency):
+    """Cached currency conversion filter"""
+    try:
+        # Get exchange rate
+        exchange_rate = frappe.db.get_value('Currency Exchange Rate', {
+            'from_currency': from_currency,
+            'to_currency': to_currency,
+            'date': frappe.utils.today()
+        }, 'exchange_rate')
+        
+        if not exchange_rate:
+            return amount
+        
+        return amount * exchange_rate
+        
+    except Exception:
+        return amount
+
+def memoize_filter(func):
+    """Decorator to memoize filter results"""
+    cache = {}
+    
+    def wrapper(*args, **kwargs):
+        key = str(args) + str(kwargs)
+        if key not in cache:
+            cache[key] = func(*args, **kwargs)
+        return cache[key]
+    
+    return wrapper
+
+@memoize_filter
+def expensive_calculation(value):
+    """Example of an expensive calculation filter"""
+    # Simulate expensive operation
+    import time
+    time.sleep(0.1)  # Simulate processing time
+    
+    return value * 2
+```
+
+**Testing Custom Filters**
+
+```python
+# your_app/tests/test_custom_filters.py
+
+import frappe
+import unittest
+from your_app.utils.custom_jinja_filters.arabic_filters import english_to_arabic_numbers, currency_to_arabic_words
+from your_app.utils.custom_jinja_filters.date_filters import hijri_date, relative_time
+from your_app.utils.custom_jinja_filters.text_filters import camel_case, snake_case
+
+class TestCustomJinjaFilters(unittest.TestCase):
+    
+    def test_english_to_arabic_numbers(self):
+        """Test English to Arabic number conversion"""
+        self.assertEqual(english_to_arabic_numbers("1234"), "١٢٣٤")
+        self.assertEqual(english_to_arabic_numbers(5678), "٥٦٧٨")
+        self.assertEqual(english_to_arabic_numbers(""), "")
+        self.assertEqual(english_to_arabic_numbers(None), None)
+    
+    def test_currency_to_arabic_words(self):
+        """Test currency to Arabic words conversion"""
+        result = currency_to_arabic_words(1500.75)
+        self.assertIn("ألف وخمسمائة", result)
+        self.assertIn("جنيه", result)
+        self.assertIn("خمسة وسبعون قرشاً", result)
+    
+    def test_camel_case(self):
+        """Test camel case conversion"""
+        self.assertEqual(camel_case("hello world"), "helloWorld")
+        self.assertEqual(camel_case("test_case_filter"), "testCaseFilter")
+        self.assertEqual(camel_case(""), "")
+    
+    def test_snake_case(self):
+        """Test snake case conversion"""
+        self.assertEqual(snake_case("HelloWorld"), "hello_world")
+        self.assertEqual(snake_case("TestCaseFilter"), "test_case_filter")
+        self.assertEqual(snake_case(""), "")
+    
+    def test_hijri_date(self):
+        """Test Hijri date conversion"""
+        # Test with known date
+        result = hijri_date("2023-01-01")
+        self.assertIn("هـ", result)  # Should contain Hijri suffix
+    
+    def test_relative_time(self):
+        """Test relative time formatting"""
+        # Test with recent date
+        result = relative_time(frappe.utils.add_days_to_date(frappe.utils.nowdate(), -2))
+        self.assertIn("ago", result)
+
+# Run tests
+def run_filter_tests():
+    """Run all filter tests"""
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestCustomJinjaFilters)
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    return result.wasSuccessful()
+```
+
+**Best Practices for Custom Jinja Filters**
+
+1. **Error Handling**: Always handle edge cases and invalid inputs gracefully
+2. **Performance**: Use caching for expensive operations
+3. **Documentation**: Provide clear docstrings for all filter functions
+4. **Testing**: Write comprehensive tests for all custom filters
+5. **Naming**: Use descriptive names that clearly indicate the filter's purpose
+6. **Type Safety**: Validate input types and handle type conversions
+7. **Localization**: Consider internationalization and localization requirements
+8. **Security**: Sanitize inputs to prevent XSS attacks in HTML output
+
+---
+
+## 🎯 **Print Format Best Practices Summary**
+
+### **Template Design Principles**
+- **Separation of Concerns**: Keep business logic separate from presentation
+- **Reusability**: Create modular templates that can be reused across doctypes
+- **Maintainability**: Use clear, well-documented template code
+- **Performance**: Optimize template rendering for large documents
+
+### **Custom Filter Development**
+- **Error Handling**: Handle edge cases and invalid inputs gracefully
+- **Performance**: Use caching for expensive operations
+- **Testing**: Write comprehensive tests for all custom filters
+- **Security**: Sanitize inputs to prevent XSS attacks
+
+### **Print Format Optimization**
+- **Caching**: Use template caching for frequently used formats
+- **Lazy Loading**: Load data only when needed
+- **Minification**: Minimize HTML/CSS for faster rendering
+- **Batch Processing**: Process multiple documents efficiently
+
+---
+
+**💡 Pro Tip**: Custom Jinja filters significantly enhance the power and flexibility of your print formats. Start with simple filters and gradually build more complex ones as needed. Always test filters thoroughly before deploying to production.

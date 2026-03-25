@@ -362,3 +362,105 @@ frappe.msgprint(_("welcome_message"))  # → "مرحبا بك!"
 // In JavaScript
 frappe.show_alert({message: __("save_success"), indicator: "green"});
 ```
+
+
+---
+
+## 📌 Addendum: `get-untranslated` Command — Complete Workflow
+
+### What It Does
+
+`bench get-untranslated` scans all Python, JavaScript, JSON, and DocType files in your app, extracts every string wrapped in `_()` or `__()`, then compares against existing translations to output only the untranslated ones.
+
+### Command Syntax
+
+```bash
+# Get untranslated strings for a language
+bench --site mysite get-untranslated ar untranslated_ar.txt --app myapp
+
+# Get ALL strings (translated + untranslated)
+bench --site mysite get-untranslated ar all_strings.txt --app myapp --all
+
+# All apps
+bench --site mysite get-untranslated ar untranslated_ar.txt
+```
+
+**Parameters:**
+- `ar` — ISO 639-1 language code
+- `untranslated_ar.txt` — output file (one string per line)
+- `--app myapp` — limit to a specific app
+- `--all` — include already-translated strings too
+
+### Complete Translation Workflow
+
+**Step 1: Extract untranslated strings**
+
+```bash
+bench --site mysite get-untranslated es untranslated_es.txt --app myapp
+# Output: "45 missing translations of 245"
+```
+
+**Step 2: Create translated file**
+
+Copy the file and translate each line (same line count, same order):
+
+```bash
+cp untranslated_es.txt translated_es.txt
+# Edit translated_es.txt — translate each line
+```
+
+**Step 3: Import translations**
+
+```bash
+bench --site mysite update-translations es untranslated_es.txt translated_es.txt --app myapp
+```
+
+This writes to `apps/myapp/myapp/translations/es.csv`.
+
+**Step 4: Build and clear cache**
+
+```bash
+bench build --app myapp
+bench --site mysite clear-cache
+```
+
+### Output File Format
+
+The output file has one string per line. Newlines inside strings are escaped as `|||`:
+
+```
+Hello World
+Welcome to {0}
+Line 1|||Line 2|||Line 3
+Save
+```
+
+### Checking Translation Completeness
+
+```bash
+#!/bin/bash
+SITE="mysite.local"
+APP="myapp"
+
+for lang in es fr de ar zh; do
+    bench --site $SITE get-untranslated $lang /tmp/check_$lang.txt --app $APP 2>&1 | \
+        grep -E "missing|translated"
+    echo "  → $lang"
+done
+```
+
+### Where Strings Are Extracted From
+
+The command scans:
+- Python files — `_()` and `_lt()` calls
+- JavaScript/Vue/HTML files — `__()` calls
+- DocType JSON — field labels, descriptions, select options
+- Reports, Pages, Workflows — labels and titles
+- Custom Fields — labels and descriptions (from database)
+
+### Key Notes
+
+- Strings are deduplicated before output
+- Context-aware strings (`_("Save", context="Button")`) appear once per context
+- The `--all` flag is useful for sending to a translator who needs the full picture
+- After importing, the CSV file at `apps/myapp/myapp/translations/es.csv` is the source of truth

@@ -1210,3 +1210,200 @@ Background Workers (RQ) + Scheduler
     ↑
 Socket.IO (Node.js) ← Real-time events
 ```
+
+
+---
+
+## 10. Developer Mode vs Production Mode
+
+### What `developer_mode` Controls
+
+`developer_mode` is a setting in `sites/common_site_config.json` or `sites/[site]/site_config.json`. It has nothing to do with how you run Frappe (`bench start` vs nginx/supervisor) — it only controls behavior.
+
+```json
+{ "developer_mode": 1 }
+```
+
+| Feature | Developer Mode | Production Mode |
+|---|---|---|
+| Edit standard DocTypes | ✅ Allowed | ❌ Read-only |
+| Auto-export to JSON files | ✅ Yes | ❌ No |
+| Full error tracebacks | ✅ Shown | ❌ Hidden |
+| Asset minification | ❌ Disabled | ✅ Enabled |
+| File watching / live reload | ✅ Available | ❌ Disabled |
+| Network always online | ✅ Yes | ❌ Real check |
+| Dormant site check | ❌ Disabled | ✅ Enabled |
+
+### Enable/Disable
+
+```bash
+# Enable for all sites
+bench set-config developer_mode 1 -g
+
+# Enable for specific site
+bench --site mysite set-config developer_mode 1
+
+# Disable (production)
+bench --site mysite set-config developer_mode 0
+```
+
+### Running Frappe: Two Ways
+
+- `bench start` — for local development. Easy to restart, supports live reload.
+- `nginx + supervisor` — for production. Runs 24/7, handles real traffic.
+
+You can run `developer_mode = 1` with nginx/supervisor on a dev server, but never do this on a live public site.
+
+**Simple rule:**
+- Develop locally → `bench start` + `developer_mode = 1`
+- Deploy to production → nginx/supervisor + `developer_mode = 0`
+
+---
+
+## 11. Standard vs Custom in Frappe
+
+### The Core Distinction
+
+- **Standard** = lives in source code (app files). Visible to all sites that install the app.
+- **Custom** = lives in the database of a specific site. Only that site sees it.
+
+### From the Apps Perspective
+
+Frappe is the standard core. When you run `bench new-app`, you create a custom app. ERPNext is "standard" from your custom app's perspective (if you depend on it), but "custom" from Frappe's perspective.
+
+### From the Sites Perspective
+
+Each site is a separate client with its own database. Anything you create on a site (DocType, Report, Web Form, Custom Field) is **custom** by default — stored only in that site's database.
+
+### Making Something Standard (Source Code)
+
+To make a customization visible to all sites:
+
+1. Enable **Developer Mode**
+2. Log in as **Administrator**
+3. Depending on the object:
+   - **DocType** → uncheck the "Custom?" checkbox
+   - **Report** → set "Is Standard?" to Yes
+   - **Web Form** → set "Is Standard?" to Yes
+   - **Web Pages / Custom Fields** → export as **Fixtures** (JSON files), applied via `bench migrate`
+
+### Quick Reference
+
+```
+Standard → Source code → All sites see it
+Custom   → Database    → Only that site sees it
+```
+
+---
+
+## 12. Quick Testing Tips
+
+### Test Translations
+
+```bash
+bench --site mysite console
+```
+
+```python
+frappe.lang = "ar"
+frappe.local.lang = "ar"
+frappe._("hello")  # Returns Arabic translation if it exists
+```
+
+### Test Patches
+
+```bash
+bench execute myapp.patches.v1_0.my_patch.execute
+```
+
+The path is the same as what you'd put in `patches.txt`.
+
+### Test Scheduled Events
+
+```bash
+bench trigger-scheduler-event myapp.scheduler.tasks.daily_backup
+```
+
+### Test Notifications
+
+```python
+# In bench console
+from frappe.email.doctype.notification.notification import trigger_daily_alerts
+trigger_daily_alerts()
+```
+
+### Run Tests for a DocType
+
+```bash
+bench --site mysite run-tests --doctype "Sales Order" --skip-test-records
+bench --site mysite run-tests --doctype "Sales Order" --test test_submit --skip-test-records
+```
+
+### View Background Worker Output
+
+```bash
+bench worker --queue long
+bench worker --queue short
+bench worker --queue default
+```
+
+### Render Email Queue Message
+
+```python
+# In bench console
+import email
+from email import policy
+
+raw = frappe.db.get_value("Email Queue", "your-email-queue-name", "message")
+msg = email.message_from_string(raw, policy=policy.default)
+print("Subject:", msg["subject"])
+for part in msg.walk():
+    if part.get_content_type() == "text/html":
+        print(part.get_content())
+```
+
+---
+
+## 13. Useful Built-in Tools
+
+### Permission Inspector
+
+URL: `/app/permission-inspector`
+
+Debug why a user has or doesn't have a specific permission. Shows all roles, all matching rules, and why access was granted or denied.
+
+### Role Permission Manager
+
+URL: `/app/permission-manager`
+
+Review and manage permissions for a role on a DocType. Add, modify, or remove permission rules.
+
+### System Console
+
+URL: `/app/system-console`
+
+Run Python code or SQL queries directly from the browser. Check the "Commit" checkbox to persist database changes; otherwise changes are rolled back.
+
+### Impersonate User
+
+URL: `/app/user/<user-name>` → click "Impersonate"
+
+Lets an admin log in as another user without knowing their password. Useful for testing. The impersonated user is notified.
+
+### Permitted Documents For User
+
+Report → "Permitted Documents For User"
+
+Shows only the documents a specific user can access. Useful for testing User Permissions configuration.
+
+### Commit App (Third-Party)
+
+```bash
+bench get-app --branch main The-commit-company/commit
+bench --site mysite install-app commit
+```
+
+Then visit `/commit`. Provides:
+- API explorer — lists and lets you test every API in your system
+- ERD diagram — draws your database schema
+- Bench commands cheat sheet

@@ -10,6 +10,8 @@ By the end of this chapter, you will master:
 - **How** API authentication and authorization work internally
 - **Advanced patterns** for building scalable API integrations
 - **Performance optimization** techniques for high-volume API operations
+- **Unified error handling** for consistent API responses
+- **Integration requests** for external API logging and monitoring
 
 ## 📚 Chapter Topics
 
@@ -31,6 +33,7 @@ class APIRequestProcessor:
         self.auth_manager = AuthenticationManager()
         self.response_formatter = ResponseFormatter()
         self.performance_monitor = APIPerformanceMonitor()
+        self.error_handler = UnifiedErrorHandler()
         
         # Initialize middleware
         self.initialize_middleware()
@@ -2043,6 +2046,605 @@ def sensitive_endpoint():
 def request_password_reset(email):
     pass
 ```
+
+### 8.6 Unified API Error Handling System
+
+**The Problem with Traditional Error Handling**
+
+Traditional Frappe API error handling lacks consistency and structure. Developers face:
+- **Inconsistent error formats** across different API endpoints
+- **Poor error visibility** with generic messages that don't help debugging
+- **No standardized HTTP status codes** for different error types
+- **Mixed error handling approaches** leading to maintenance challenges
+- **Limited debugging information** in production environments
+
+**Our Solution: Unified Exception Handling System**
+
+The API Exception Handling System provides a **unified approach** to error management for custom Frappe APIs:
+
+```python
+# your_app/api/exceptions.py
+import frappe
+from functools import wraps
+import traceback
+from typing import Dict, Any, Optional
+
+class APIException(Exception):
+    """Base exception class for all API errors"""
+    
+    def __init__(self, message: str, error_code: str = None, status_code: int = 400, 
+                 details: Dict[str, Any] = None):
+        self.message = message
+        self.error_code = error_code or self.__class__.__name__
+        self.status_code = status_code
+        self.details = details or {}
+        super().__init__(message)
+
+class ValidationError(APIException):
+    """Validation error - 400"""
+    def __init__(self, message: str, field: str = None, **kwargs):
+        super().__init__(message, "VALIDATION_ERROR", 400, **kwargs)
+        if field:
+            self.details["field"] = field
+
+class AuthenticationError(APIException):
+    """Authentication error - 401"""
+    def __init__(self, message: str = "Authentication required", **kwargs):
+        super().__init__(message, "AUTHENTICATION_ERROR", 401, **kwargs)
+
+class AuthorizationError(APIException):
+    """Authorization error - 403"""
+    def __init__(self, message: str = "Access denied", **kwargs):
+        super().__init__(message, "AUTHORIZATION_ERROR", 403, **kwargs)
+
+class NotFoundError(APIException):
+    """Resource not found - 404"""
+    def __init__(self, message: str = "Resource not found", resource: str = None, **kwargs):
+        super().__init__(message, "NOT_FOUND", 404, **kwargs)
+        if resource:
+            self.details["resource"] = resource
+
+class RateLimitError(APIException):
+    """Rate limit exceeded - 429"""
+    def __init__(self, message: str = "Rate limit exceeded", **kwargs):
+        super().__init__(message, "RATE_LIMIT_ERROR", 429, **kwargs)
+
+class ServerError(APIException):
+    """Internal server error - 500"""
+    def __init__(self, message: str = "Internal server error", **kwargs):
+        super().__init__(message, "SERVER_ERROR", 500, **kwargs)
+
+def handle_api_exceptions(func):
+    """Decorator to handle API exceptions and return consistent responses"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except APIException as e:
+            # Handle our custom API exceptions
+            response = {
+                "success": False,
+                "error": {
+                    "code": e.error_code,
+                    "message": e.message,
+                    "details": e.details
+                }
+            }
+            
+            # Add debug information in development
+            if frappe.conf.developer_mode:
+                response["error"]["traceback"] = traceback.format_exc()
+            
+            frappe.local.response = response
+            frappe.local.response_type = "json"
+            frappe.local.status_code = e.status_code
+            
+        except Exception as e:
+            # Handle unexpected errors
+            response = {
+                "success": False,
+                "error": {
+                    "code": "UNEXPECTED_ERROR",
+                    "message": "An unexpected error occurred",
+                    "details": {}
+                }
+            }
+            
+            # Add debug information in development
+            if frappe.conf.developer_mode:
+                response["error"]["traceback"] = traceback.format_exc()
+                response["error"]["original_error"] = str(e)
+            
+            frappe.local.response = response
+            frappe.local.response_type = "json"
+            frappe.local.status_code = 500
+            
+            # Log the error for debugging
+            frappe.log_error(
+                message=f"API Error in {func.__name__}: {str(e)}",
+                title="API Exception",
+                reference=frappe.form_dict
+            )
+    
+    return wrapper
+
+# Usage Examples
+@frappe.whitelist()
+@handle_api_exceptions
+def create_customer(customer_data: Dict[str, Any]):
+    """Create a new customer with unified error handling"""
+    
+    # Validate required fields
+    required_fields = ["customer_name", "customer_group"]
+    for field in required_fields:
+        if not customer_data.get(field):
+            raise ValidationError(f"Field '{field}' is required", field=field)
+    
+    # Check if customer already exists
+    if frappe.db.exists("Customer", {"customer_name": customer_data["customer_name"]}):
+        raise ValidationError("Customer with this name already exists", field="customer_name")
+    
+    # Check permissions
+    if not frappe.has_permission("Customer", "create"):
+        raise AuthorizationError("You don't have permission to create customers")
+    
+    try:
+        # Create the customer
+        customer = frappe.get_doc({
+            "doctype": "Customer",
+            **customer_data
+        })
+        customer.insert(ignore_permissions=True)
+        
+        return {
+            "success": True,
+            "data": {
+                "name": customer.name,
+                "customer_name": customer.customer_name,
+                "creation": customer.creation
+            }
+        }
+        
+    except frappe.DuplicateEntryError:
+        raise ValidationError("Customer with this name already exists", field="customer_name")
+    except Exception as e:
+        raise ServerError(f"Failed to create customer: {str(e)}")
+
+@frappe.whitelist()
+@handle_api_exceptions
+def get_customer(customer_name: str):
+    """Get customer details with unified error handling"""
+    
+    if not customer_name:
+        raise ValidationError("Customer name is required", field="customer_name")
+    
+    customer = frappe.db.get_value("Customer", customer_name, ["name", "customer_name", "email", "phone"], as_dict=True)
+    
+    if not customer:
+        raise NotFoundError("Customer not found", resource="Customer")
+    
+    return {
+        "success": True,
+        "data": customer
+    }
+```
+
+### 8.7 Integration Request System
+
+**What is Integration Request?**
+
+**Integration Request** is a Frappe DocType designed to track, log, and manage external API calls and integrations. It serves as a centralized logging system for all outbound and inbound API requests, making it an essential tool for debugging, monitoring, and maintaining integrations with third-party services.
+
+**Key Characteristics:**
+- **Centralized Logging**: All API calls are logged in one place
+- **Status Tracking**: Tracks the lifecycle of API requests (Queued → Authorized → Completed/Failed)
+- **Error Handling**: Captures both successful responses and error details
+- **Reference Linking**: Can be linked to specific documents that triggered the integration
+- **Audit Trail**: Provides complete audit trail for compliance and debugging
+
+**When to Use Integration Request**
+
+### 1. **Payment Gateway Integrations**
+- Stripe, PayPal, Razorpay, Paytm, M-Pesa
+- Track payment attempts, successes, and failures
+- Audit financial transactions
+
+### 2. **Email/SMS Services**
+- SendGrid, Twilio, AWS SES
+- Monitor delivery status and failures
+- Track communication costs
+
+### 3. **Third-Party APIs**
+- Google Maps, shipping providers, CRM systems
+- Log API calls for debugging
+- Monitor rate limits and quotas
+
+### 4. **Webhook Processing**
+- GitHub, Shopify, external systems
+- Track incoming webhook processing
+- Debug webhook failures
+
+**Implementation Examples**
+
+```python
+# your_app/integrations/stripe_integration.py
+import frappe
+import stripe
+from frappe.utils import now
+import json
+
+@frappe.whitelist()
+def create_payment_intent(amount: int, currency: str = "usd", customer_id: str = None):
+    """Create Stripe payment intent with integration logging"""
+    
+    # Create integration request for logging
+    integration_request = frappe.get_doc({
+        "doctype": "Integration Request",
+        "integration_type": "Remote",
+        "reference_doctype": "Sales Invoice",
+        "reference_docname": customer_id,
+        "request_url": "https://api.stripe.com/v1/payment_intents",
+        "request_headers": json.dumps({
+            "Authorization": f"Bearer {get_stripe_api_key()}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }),
+        "request_data": json.dumps({
+            "amount": amount * 100,  # Stripe uses cents
+            "currency": currency,
+            "customer": customer_id
+        })
+    })
+    integration_request.insert(ignore_permissions=True)
+    
+    try:
+        # Make API call to Stripe
+        stripe.api_key = get_stripe_api_key()
+        payment_intent = stripe.PaymentIntent.create(
+            amount=amount * 100,
+            currency=currency,
+            customer=customer_id if customer_id else None
+        )
+        
+        # Update integration request with success
+        integration_request.status = "Completed"
+        integration_request.response_data = json.dumps(payment_intent.to_dict())
+        integration_request.output = json.dumps({
+            "payment_intent_id": payment_intent.id,
+            "client_secret": payment_intent.client_secret
+        })
+        integration_request.execution_time = frappe.utils.time_diff_in_seconds(
+            frappe.utils.now(), integration_request.creation
+        )
+        integration_request.save(ignore_permissions=True)
+        
+        return {
+            "success": True,
+            "payment_intent_id": payment_intent.id,
+            "client_secret": payment_intent.client_secret
+        }
+        
+    except stripe.error.StripeError as e:
+        # Update integration request with error
+        integration_request.status = "Failed"
+        integration_request.error = str(e)
+        integration_request.save(ignore_permissions=True)
+        
+        raise Exception(f"Stripe API Error: {str(e)}")
+    
+    except Exception as e:
+        # Update integration request with unexpected error
+        integration_request.status = "Failed"
+        integration_request.error = str(e)
+        integration_request.save(ignore_permissions=True)
+        
+        raise Exception(f"Unexpected error: {str(e)}")
+
+def get_stripe_api_key():
+    """Get encrypted Stripe API key from system settings"""
+    from frappe.utils.password import get_decrypted_password
+    return get_decrypted_password("System Settings", "System Settings", "stripe_api_key")
+
+@frappe.whitelist()
+def handle_webhook(webhook_data: Dict[str, Any], event_type: str):
+    """Handle Stripe webhook with integration logging"""
+    
+    # Create integration request for incoming webhook
+    integration_request = frappe.get_doc({
+        "doctype": "Integration Request",
+        "integration_type": "Webhook",
+        "request_url": "webhook/stripe",
+        "request_data": json.dumps(webhook_data),
+        "request_headers": json.dumps({"Stripe-Event": event_type})
+    })
+    integration_request.insert(ignore_permissions=True)
+    
+    try:
+        # Process webhook based on event type
+        if event_type == "payment_intent.succeeded":
+            payment_intent = webhook_data["data"]["object"]
+            # Update related invoice status
+            invoice_name = payment_intent.get("metadata", {}).get("invoice_id")
+            if invoice_name:
+                invoice = frappe.get_doc("Sales Invoice", invoice_name)
+                invoice.status = "Paid"
+                invoice.save(ignore_permissions=True)
+                frappe.db.commit()
+        
+        # Mark integration request as completed
+        integration_request.status = "Completed"
+        integration_request.output = json.dumps({"processed": True})
+        integration_request.save(ignore_permissions=True)
+        
+        return {"success": True}
+        
+    except Exception as e:
+        # Mark integration request as failed
+        integration_request.status = "Failed"
+        integration_request.error = str(e)
+        integration_request.save(ignore_permissions=True)
+        
+        raise Exception(f"Webhook processing failed: {str(e)}")
+
+# your_app/integrations/email_integration.py
+@frappe.whitelist()
+def send_email_via_sendgrid(to_email: str, subject: str, message: str, 
+                           reference_doctype: str = None, reference_docname: str = None):
+    """Send email via SendGrid with integration logging"""
+    
+    # Create integration request
+    integration_request = frappe.get_doc({
+        "doctype": "Integration Request",
+        "integration_type": "Remote",
+        "reference_doctype": reference_doctype,
+        "reference_docname": reference_docname,
+        "request_url": "https://api.sendgrid.com/v3/mail/send",
+        "request_data": json.dumps({
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": "noreply@yourcompany.com"},
+            "subject": subject,
+            "content": [{"type": "text/plain", "value": message}]
+        })
+    })
+    integration_request.insert(ignore_permissions=True)
+    
+    try:
+        # Send email via SendGrid API
+        import sendgrid
+        from sendgrid.helpers.mail import Mail
+        
+        sg = sendgrid.SendGridAPIClient(get_sendgrid_api_key())
+        
+        message = Mail(
+            from_email="noreply@yourcompany.com",
+            to_emails=to_email,
+            subject=subject,
+            html_content=message
+        )
+        
+        response = sg.send(message)
+        
+        # Update integration request
+        integration_request.status = "Completed"
+        integration_request.response_data = json.dumps({
+            "status_code": response.status_code,
+            "headers": dict(response.headers)
+        })
+        integration_request.output = json.dumps({
+            "message_id": response.headers.get("X-Message-Id"),
+            "status": "sent"
+        })
+        integration_request.save(ignore_permissions=True)
+        
+        return {"success": True, "message_id": response.headers.get("X-Message-Id")}
+        
+    except Exception as e:
+        integration_request.status = "Failed"
+        integration_request.error = str(e)
+        integration_request.save(ignore_permissions=True)
+        
+        raise Exception(f"SendGrid API Error: {str(e)}")
+
+def get_sendgrid_api_key():
+    """Get encrypted SendGrid API key"""
+    from frappe.utils.password import get_decrypted_password
+    return get_decrypted_password("System Settings", "System Settings", "sendgrid_api_key")
+
+# Monitoring and Reporting
+@frappe.whitelist()
+def get_integration_stats(days: int = 30):
+    """Get integration statistics for monitoring"""
+    
+    from_date = frappe.utils.add_days(frappe.utils.nowdate(), -days)
+    
+    stats = frappe.db.sql("""
+        SELECT 
+            integration_type,
+            status,
+            COUNT(*) as count,
+            AVG(execution_time) as avg_execution_time
+        FROM `tabIntegration Request`
+        WHERE creation >= %s
+        GROUP BY integration_type, status
+        ORDER BY count DESC
+    """, (from_date,), as_dict=True)
+    
+    return {
+        "stats": stats,
+        "summary": {
+            "total_requests": sum(row.count for row in stats),
+            "success_rate": calculate_success_rate(stats),
+            "avg_execution_time": calculate_avg_time(stats)
+        }
+    }
+
+def calculate_success_rate(stats):
+    """Calculate success rate from integration stats"""
+    total = sum(row.count for row in stats)
+    successful = sum(row.count for row in stats if row.status == "Completed")
+    return (successful / total * 100) if total > 0 else 0
+
+def calculate_avg_time(stats):
+    """Calculate average execution time"""
+    completed_requests = [row for row in stats if row.status == "Completed" and row.avg_execution_time]
+    if not completed_requests:
+        return 0
+    
+    total_time = sum(row.avg_execution_time * row.count for row in completed_requests)
+    total_requests = sum(row.count for row in completed_requests)
+    return total_time / total_requests if total_requests > 0 else 0
+```
+
+**Integration Request Best Practices**
+
+```python
+# your_app/utils/integration_utils.py
+import frappe
+import json
+import time
+from functools import wraps
+from typing import Dict, Any, Optional
+
+def log_integration_request(integration_type: str, request_url: str, 
+                           request_data: Dict[str, Any] = None,
+                           reference_doctype: str = None,
+                           reference_docname: str = None):
+    """Decorator to automatically log integration requests"""
+    
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Create integration request
+            integration_request = frappe.get_doc({
+                "doctype": "Integration Request",
+                "integration_type": integration_type,
+                "request_url": request_url,
+                "request_data": json.dumps(request_data or {}),
+                "reference_doctype": reference_doctype,
+                "reference_docname": reference_docname
+            })
+            integration_request.insert(ignore_permissions=True)
+            
+            start_time = time.time()
+            
+            try:
+                # Execute the function
+                result = func(*args, **kwargs)
+                
+                # Update with success
+                integration_request.status = "Completed"
+                integration_request.output = json.dumps(result)
+                integration_request.execution_time = time.time() - start_time
+                integration_request.save(ignore_permissions=True)
+                
+                return result
+                
+            except Exception as e:
+                # Update with error
+                integration_request.status = "Failed"
+                integration_request.error = str(e)
+                integration_request.execution_time = time.time() - start_time
+                integration_request.save(ignore_permissions=True)
+                
+                raise
+        
+        return wrapper
+    return decorator
+
+# Usage example
+@log_integration_request(
+    integration_type="Remote",
+    request_url="https://api.example.com/endpoint",
+    reference_doctype="Sales Order",
+    reference_docname="SO-2023-001"
+)
+def call_external_api(data: Dict[str, Any]):
+    """Call external API with automatic logging"""
+    # Your API call logic here
+    pass
+
+# Integration Request Cleanup
+def cleanup_old_integration_requests(days: int = 90):
+    """Clean up old integration requests to maintain performance"""
+    
+    cutoff_date = frappe.utils.add_days(frappe.utils.nowdate(), -days)
+    
+    # Delete old completed requests
+    frappe.db.sql("""
+        DELETE FROM `tabIntegration Request`
+        WHERE creation < %s AND status = 'Completed'
+    """, (cutoff_date,))
+    
+    # Archive old failed requests (optional)
+    failed_requests = frappe.db.sql("""
+        SELECT name FROM `tabIntegration Request`
+        WHERE creation < %s AND status = 'Failed'
+    """, (cutoff_date,))
+    
+    for request_name, in failed_requests:
+        # Move to archive or delete based on your compliance requirements
+        frappe.delete_doc("Integration Request", request_name)
+    
+    frappe.db.commit()
+```
+
+**Monitoring Integration Requests**
+
+```python
+# your_app/reports/integration_monitor.py
+import frappe
+
+def execute(filters=None):
+    """Report for monitoring integration requests"""
+    
+    columns = [
+        {"label": "Integration Type", "fieldname": "integration_type", "fieldtype": "Data"},
+        {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+        {"label": "Request URL", "fieldname": "request_url", "fieldtype": "Data"},
+        {"label": "Reference", "fieldname": "reference", "fieldtype": "Data"},
+        {"label": "Execution Time", "fieldname": "execution_time", "fieldtype": "Float"},
+        {"label": "Creation", "fieldname": "creation", "fieldtype": "Datetime"},
+        {"label": "Error", "fieldname": "error", "fieldtype": "Text"}
+    ]
+    
+    conditions = []
+    if filters.get("from_date"):
+        conditions.append("creation >= %(from_date)s")
+    if filters.get("to_date"):
+        conditions.append("creation <= %(to_date)s")
+    if filters.get("integration_type"):
+        conditions.append("integration_type = %(integration_type)s")
+    if filters.get("status"):
+        conditions.append("status = %(status)s")
+    
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    
+    data = frappe.db.sql(f"""
+        SELECT 
+            integration_type,
+            status,
+            request_url,
+            CONCAT(reference_doctype, ': ', reference_docname) as reference,
+            execution_time,
+            creation,
+            error
+        FROM `tabIntegration Request`
+        WHERE {where_clause}
+        ORDER BY creation DESC
+        LIMIT 1000
+    """, filters, as_dict=True)
+    
+    return columns, data
+```
+
+This unified approach to API development provides:
+
+1. **Consistent Error Handling** - Standardized error responses across all endpoints
+2. **Comprehensive Logging** - Complete audit trail of all external integrations
+3. **Monitoring & Debugging** - Built-in tools for tracking API performance
+4. **Production Ready** - Error handling and logging suitable for enterprise deployments
+5. **Developer Friendly** - Clear error messages and debugging information
+
+By implementing these patterns, your APIs will be more reliable, maintainable, and easier to debug in production environments.
 
 When exceeded, Frappe returns `429 Too Many Requests` with headers:
 ```

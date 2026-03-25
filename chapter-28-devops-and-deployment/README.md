@@ -1,6 +1,18 @@
 # Chapter 28: DevOps and Deployment
 
-## Developer Mode vs Production Mode
+## 🎯 Learning Objectives
+
+By the end of this chapter, you will master:
+- **Container-based deployment** using Docker and Docker Compose
+- **Production configuration** and security hardening
+- **CI/CD pipelines** for automated deployment
+- **Monitoring and logging** in production environments
+- **Backup and disaster recovery** strategies
+- **Performance optimization** for production workloads
+
+## 📚 Chapter Topics
+
+### 28.1 Developer Mode vs Production Mode
 
 ### What is `developer_mode`?
 
@@ -27,6 +39,938 @@ This controls system behavior — NOT how you run Frappe.
 | Security | Low | High |
 
 ### How to Switch
+
+```bash
+# Enable production mode
+bench --site site1.local set-config developer_mode 0
+
+# Enable development mode
+bench --site site1.local set-config developer_mode 1
+```
+
+### 28.2 Docker-based Deployment
+
+## Introduction to Docker
+
+### What is Docker?
+
+Docker is a platform that packages applications and dependencies into lightweight, portable containers. Containers include everything needed to run an application: code, runtime, system tools, libraries, and settings.
+
+### Docker vs Traditional Virtualization
+
+| Aspect | Virtual Machines | Docker Containers |
+|---------|------------------|-------------------|
+| **OS Kernel** | Separate kernel per VM | Shared host kernel |
+| **Resource Usage** | Heavy (1-2GB RAM per VM) | Lightweight (50-100MB per container) |
+| **Startup Time** | Minutes | Seconds |
+| **Portability** | Limited | Highly portable |
+
+### Frappe Docker Architecture
+
+Frappe applications use a multi-container approach:
+
+```yaml
+# Typical Frappe Docker setup
+services:
+  # Backend: Frappe/ERPNext application
+  frappe:
+    image: frappe/erpnext:v15
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - apps:/home/frappe/frappe-bench/apps
+  
+  # Database: MariaDB/PostgreSQL
+  db:
+    image: mariadb:10.6
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+  
+  # Cache: Redis
+  redis-cache:
+    image: redis:6.2-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+  
+  # Queue: Redis
+  redis-queue:
+    image: redis:6.2-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+  
+  # Frontend: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+```
+
+## Creating Your First Frappe Dockerfile
+
+### Basic Dockerfile for Custom Frappe App
+
+```dockerfile
+# Multi-stage build for production optimization
+FROM frappe/erpnext:v15 AS builder
+
+# Set working directory
+WORKDIR /home/frappe/frappe-bench
+
+# Copy custom app
+COPY my_custom_app /home/frappe/frappe-bench/apps/my_custom_app
+
+# Install app dependencies
+RUN bench build --app my_custom_app
+
+# Production stage
+FROM frappe/erpnext:v15
+
+WORKDIR /home/frappe/frappe-bench
+
+# Copy built assets from builder stage
+COPY --from=builder /home/frappe/frappe-bench/sites /home/frappe/frappe-bench/sites
+COPY --from=builder /home/frappe/frappe-bench/apps/my_custom_app /home/frappe/frappe-bench/apps/my_custom_app
+
+# Set permissions
+RUN chown -R frappe:frappe /home/frappe/frappe-bench
+
+USER frappe
+
+# Expose port
+EXPOSE 8000
+
+# Start command
+CMD ["bench", "start"]
+```
+
+### Advanced Dockerfile with Optimization
+
+```dockerfile
+FROM frappe/erpnext:v15 AS base
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Development stage
+FROM base AS development
+
+WORKDIR /home/frappe/frappe-bench
+
+# Enable development mode
+ENV DEVELOPER_MODE=1
+
+# Copy source code
+COPY . .
+
+# Install dependencies
+RUN bench setup requirements --dev
+RUN bench build
+
+# Production stage
+FROM base AS production
+
+WORKDIR /home/frappe/frappe-bench
+
+# Copy only necessary files
+COPY --from=development /home/frappe/frappe-bench/sites /home/frappe/frappe-bench/sites
+COPY --from=development /home/frappe/frappe-bench/apps /home/frappe/frappe-bench/apps
+
+# Production settings
+ENV DEVELOPER_MODE=0
+ENV MAINTENANCE_MODE=0
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/api/method/version || exit 1
+
+USER frappe
+
+EXPOSE 8000
+
+CMD ["bench", "serve", "--port=8000", "--no-reload"]
+```
+
+## Docker Compose for Production
+
+### Complete Production Docker Compose
+
+```yaml
+version: '3.8'
+
+services:
+  # Frappe Application
+  frappe:
+    image: frappe/erpnext:v15
+    container_name: frappe-app
+    restart: unless-stopped
+    environment:
+      - FRAPPE_SITE=site1.local
+      - MYSQL_ROOT_PASSWORD=admin
+      - REDIS_CACHE=redis-cache:6379
+      - REDIS_QUEUE=redis-queue:6379
+    volumes:
+      - ./sites:/home/frappe/frappe-bench/sites:rw
+      - ./apps:/home/frappe/frappe-bench/apps:rw
+      - frappe-logs:/home/frappe/frappe-bench/logs
+      - frappe-backup:/home/frappe/frappe-bench/sites/site1.local/private/backups
+    depends_on:
+      - db
+      - redis-cache
+      - redis-queue
+    networks:
+      - frappe-network
+    ports:
+      - "8000:8000"
+
+  # Database
+  db:
+    image: mariadb:10.6
+    container_name: frappe-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=admin
+      - MYSQL_USER=frappe
+      - MYSQL_PASSWORD=frappe
+      - MYSQL_DATABASE=frappe
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/frappe.cnf:ro
+    networks:
+      - frappe-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis Cache
+  redis-cache:
+    image: redis:6.2-alpine
+    container_name: frappe-cache
+    restart: unless-stopped
+    volumes:
+      - redis-cache-data:/data
+    networks:
+      - frappe-network
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  # Redis Queue
+  redis-queue:
+    image: redis:6.2-alpine
+    container_name: frappe-queue
+    restart: unless-stopped
+    volumes:
+      - redis-queue-data:/data
+    networks:
+      - frappe-network
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: frappe-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites:/etc/nginx/sites-available:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - frappe-logs:/var/log/nginx
+    depends_on:
+      - frappe
+    networks:
+      - frappe-network
+
+  # Background Worker
+  worker:
+    image: frappe/erpnext:v15
+    container_name: frappe-worker
+    restart: unless-stopped
+    environment:
+      - FRAPPE_SITE=site1.local
+      - MYSQL_ROOT_PASSWORD=admin
+      - REDIS_CACHE=redis-cache:6379
+      - REDIS_QUEUE=redis-queue:6379
+    volumes:
+      - ./sites:/home/frappe/frappe-bench/sites:rw
+      - ./apps:/home/frappe/frappe-bench/apps:rw
+      - frappe-logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      - db
+      - redis-cache
+      - redis-queue
+    networks:
+      - frappe-network
+    command: bench worker
+
+volumes:
+  db-data:
+    driver: local
+  redis-cache-data:
+    driver: local
+  redis-queue-data:
+    driver: local
+  frappe-logs:
+    driver: local
+  frappe-backup:
+    driver: local
+
+networks:
+  frappe-network:
+    driver: bridge
+```
+
+### Environment Configuration
+
+```bash
+# .env file
+FRAPPE_VERSION=v15
+SITE_NAME=erp.example.com
+MYSQL_ROOT_PASSWORD=your_secure_password
+MYSQL_PASSWORD=your_mysql_password
+REDIS_PASSWORD=your_redis_password
+
+# SSL Configuration
+SSL_CERT_PATH=./ssl/cert.pem
+SSL_KEY_PATH=./ssl/key.pem
+
+# Backup Configuration
+BACKUP_SCHEDULE=0 2 * * *
+BACKUP_RETENTION_DAYS=30
+```
+
+## Production Nginx Configuration
+
+### Nginx Conf for Frappe
+
+```nginx
+# /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging format
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    # Performance optimizations
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Security headers
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=login:10m rate=1r/s;
+
+    # Include site configurations
+    include /etc/nginx/sites-enabled/*;
+}
+```
+
+### Site Configuration
+
+```nginx
+# /etc/nginx/sites-available/erp.example.com
+server {
+    listen 80;
+    server_name erp.example.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name erp.example.com;
+
+    # SSL configuration
+    ssl_certificate /etc/nginx/ssl/cert.pem;
+    ssl_certificate_key /etc/nginx/ssl/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # Root directory
+    root /home/frappe/frappe-bench/sites;
+    index index.html;
+
+    # Security
+    client_max_body_size 50M;
+    client_body_buffer_size 128k;
+
+    # Frappe specific locations
+    location / {
+        proxy_pass http://frappe:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $server_name;
+        
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
+    # Rate limiting for API
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass http://frappe:8000;
+        # ... same proxy settings as above
+    }
+
+    # Rate limiting for login
+    location /login {
+        limit_req zone=login burst=5 nodelay;
+        proxy_pass http://frappe:8000;
+        # ... same proxy settings as above
+    }
+
+    # Static files
+    location /assets/ {
+        alias /home/frappe/frappe-bench/sites/assets/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Health check
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}
+```
+
+### 28.3 Production Security Hardening
+
+## Security Configuration
+
+### Site Security Settings
+
+```python
+# site_config.json
+{
+    "developer_mode": 0,
+    "maintenance_mode": 0,
+    "disable_signup": 1,
+    "restrict_domain_setup": 1,
+    "enable_two_factor_auth": 1,
+    "force_two_factor_auth": 0,
+    "session_expiry": 14400,
+    "allow_password_reset": 1,
+    "password_reset_expiry": 3600,
+    "restrict_ip_login": 0,
+    "allowed_ips": [],
+    "enable captcha": 1,
+    "backup_limit": 5,
+    "auto_account_deletion": 0,
+    "suspend_auto_account_deletion": 0
+}
+```
+
+### Database Security
+
+```sql
+-- Create dedicated database user
+CREATE USER 'frappe'@'%' IDENTIFIED BY 'strong_password';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, INDEX ON `frappe_%`.* TO 'frappe'@'%';
+FLUSH PRIVILEGES;
+
+-- Remove test database
+DROP DATABASE IF EXISTS test;
+
+-- Remove anonymous users
+DELETE FROM mysql.user WHERE User='';
+FLUSH PRIVILEGES;
+```
+
+### Firewall Configuration
+
+```bash
+# UFW firewall rules
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
+```
+
+### SSL/TLS Configuration
+
+```bash
+# Generate SSL certificate with Let's Encrypt
+certbot --nginx -d erp.example.com
+
+# Auto-renewal setup
+echo "0 12 * * * /usr/bin/certbot renew --quiet" | crontab -
+```
+
+### 28.4 Monitoring and Logging
+
+## Application Monitoring
+
+### Health Check Script
+
+```python
+# health_check.py
+import requests
+import sys
+import time
+
+def check_health():
+    """Check application health"""
+    try:
+        # Check main application
+        response = requests.get('http://localhost:8000/api/method/version', timeout=10)
+        if response.status_code != 200:
+            return False, "Application not responding"
+        
+        # Check database connectivity
+        import frappe
+        frappe.init('site1.local')
+        frappe.connect()
+        frappe.db.sql("SELECT 1")
+        frappe.destroy()
+        
+        return True, "All systems healthy"
+    except Exception as e:
+        return False, str(e)
+
+if __name__ == "__main__":
+    healthy, message = check_health()
+    if not healthy:
+        print(f"UNHEALTHY: {message}")
+        sys.exit(1)
+    else:
+        print(f"HEALTHY: {message}")
+        sys.exit(0)
+```
+
+### Prometheus Metrics
+
+```python
+# metrics.py
+from prometheus_client import Counter, Histogram, Gauge, start_http_server
+import frappe
+
+# Define metrics
+REQUEST_COUNT = Counter('frappe_requests_total', 'Total requests', ['method', 'endpoint'])
+REQUEST_DURATION = Histogram('frappe_request_duration_seconds', 'Request duration')
+ACTIVE_USERS = Gauge('frappe_active_users', 'Number of active users')
+DB_CONNECTIONS = Gauge('frappe_db_connections', 'Database connections')
+
+@REQUEST_DURATION.time()
+def track_request():
+    """Track request metrics"""
+    REQUEST_COUNT.labels(method='GET', endpoint='/api/method/version').inc()
+    ACTIVE_USERS.set(len(frappe.db.get_all('User', filters={'enabled': 1})))
+    DB_CONNECTIONS.set(frappe.db.connection_pool_size)
+
+# Start metrics server
+start_http_server(8001)
+```
+
+### Log Management
+
+```yaml
+# docker-compose.logging.yml
+version: '3.8'
+
+services:
+  frappe:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+  # ELK Stack for log aggregation
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.15.0
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+volumes:
+  elasticsearch-data:
+```
+
+### 28.5 Backup and Disaster Recovery
+
+## Automated Backup Strategy
+
+### Backup Script
+
+```bash
+#!/bin/bash
+# backup.sh
+
+BACKUP_DIR="/home/frappe/backups"
+SITE_NAME="site1.local"
+DATE=$(date +%Y%m%d_%H%M%S)
+RETENTION_DAYS=30
+
+# Create backup directory
+mkdir -p $BACKUP_DIR
+
+# Database backup
+bench --site $SITE_NAME backup --with-files --backup-path $BACKUP_DIR
+
+# Compress old backups
+find $BACKUP_DIR -name "*.sql.gz" -mtime +7 -exec gzip {} \;
+
+# Remove old backups
+find $BACKUP_DIR -name "*" -mtime +$RETENTION_DAYS -delete
+
+# Upload to cloud storage (optional)
+if command -v aws &> /dev/null; then
+    aws s3 sync $BACKUP_DIR s3://my-frappe-backups/$SITE_NAME/
+fi
+
+echo "Backup completed: $DATE"
+```
+
+### Cron Job Configuration
+
+```bash
+# Add to crontab
+# Daily backup at 2 AM
+0 2 * * * /home/frappe/backup.sh >> /var/log/frappe-backup.log 2>&1
+
+# Weekly database optimization
+0 3 * * 0 /home/frappe/optimize_db.sh >> /var/log/frappe-maintenance.log 2>&1
+
+# Monthly log rotation
+0 4 1 * * /home/frappe/rotate_logs.sh >> /var/log/frappe-maintenance.log 2>&1
+```
+
+### Disaster Recovery Plan
+
+```bash
+#!/bin/bash
+# disaster_recovery.sh
+
+SITE_NAME="site1.local"
+BACKUP_FILE=$1
+
+if [ -z "$BACKUP_FILE" ]; then
+    echo "Usage: $0 <backup_file>"
+    exit 1
+fi
+
+# Stop services
+docker-compose down
+
+# Restore database
+bench --site $SITE_NAME restore --with-files $BACKUP_FILE
+
+# Start services
+docker-compose up -d
+
+# Verify restoration
+bench --site $SITE_NAME doctor
+
+echo "Disaster recovery completed"
+```
+
+### 28.6 Performance Optimization
+
+## Production Performance Tuning
+
+### Database Optimization
+
+```sql
+-- MySQL configuration optimizations
+[mysqld]
+# Memory settings
+innodb_buffer_pool_size = 2G
+innodb_log_file_size = 256M
+innodb_log_buffer_size = 16M
+
+# Connection settings
+max_connections = 200
+max_connect_errors = 1000
+
+# Query cache
+query_cache_type = 1
+query_cache_size = 256M
+
+# Slow query log
+slow_query_log = 1
+slow_query_log_file = /var/log/mysql/slow.log
+long_query_time = 2
+
+# InnoDB settings
+innodb_file_per_table = 1
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+```
+
+### Redis Optimization
+
+```conf
+# redis.conf
+# Memory settings
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+
+# Persistence settings
+save 900 1
+save 300 10
+save 60 10000
+
+# Network settings
+tcp-keepalive 60
+timeout 300
+
+# Performance settings
+tcp-backlog 511
+databases 16
+```
+
+### Application Caching
+
+```python
+# cache_manager.py
+import frappe
+from functools import wraps
+
+def cache_result(expiration=3600):
+    """Decorator to cache function results"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            cache_key = f"{func.__name__}:{hash(str(args) + str(kwargs))}"
+            
+            # Try to get from cache
+            result = frappe.cache().get(cache_key)
+            if result is not None:
+                return result
+            
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            frappe.cache().set(cache_key, result, expires_in_sec=expiration)
+            
+            return result
+        return wrapper
+    return decorator
+
+@cache_result(expiration=1800)
+def get_customer_sales(customer):
+    """Get customer sales data with caching"""
+    return frappe.get_all("Sales Order", 
+        filters={"customer": customer, "docstatus": 1},
+        fields=["name", "grand_total", "transaction_date"]
+    )
+```
+
+### 28.7 CI/CD Pipeline
+
+## GitHub Actions Workflow
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+      
+      redis:
+        image: redis:6.2
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Run tests
+      run: |
+        bench --site test_site install-app erpnext
+        bench --site test_site migrate
+        bench --site test_site run-tests --app my_custom_app
+    
+    - name: Run linting
+      run: |
+        flake8 my_custom_app
+        black --check my_custom_app
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Login to Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ghcr.io/${{ github.repository }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Deploy to production
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          cd /opt/frappe
+          docker-compose pull
+          docker-compose up -d
+          docker system prune -f
+```
+
+---
+
+## 🎯 **Best Practices Summary**
+
+### **Security**
+- Use HTTPS everywhere
+- Implement rate limiting
+- Regular security updates
+- Principle of least privilege
+
+### **Performance**
+- Enable caching at all levels
+- Optimize database queries
+- Use CDN for static assets
+- Monitor resource usage
+
+### **Reliability**
+- Automated backups
+- Health checks
+- Monitoring and alerting
+- Disaster recovery plan
+
+### **Scalability**
+- Horizontal scaling with containers
+- Load balancing
+- Database optimization
+- Caching strategies
+
+---
+
+**💡 Pro Tip**: Always test deployment procedures in staging before applying to production. Document rollback procedures and practice disaster recovery scenarios regularly.
 
 ```bash
 # Enable developer mode

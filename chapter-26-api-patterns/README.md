@@ -793,3 +793,166 @@ except ImportError:
 | WebSocket (Socket.IO) | Native |
 | GraphQL | Not supported (requires custom app) |
 | gRPC | Not supported (requires custom app) |
+
+
+---
+
+## 📌 Addendum: Web Form API — Complete Reference
+
+### What is `frappe.web_form`?
+
+The `frappe.web_form` object is the main tool for controlling web forms (public-facing forms). It's built from three classes: `Layout → FieldGroup → WebForm`.
+
+### Key Difference from Desk Forms
+
+Web Forms use `frappe.ui.FieldGroup` instead of `frappe.ui.form.Form`. This means:
+- Custom scripts from DocType **do not run** in Web Forms
+- `get_query` filters defined in form scripts **don't apply**
+- `fetch_from` functionality **doesn't work** for guest users (no API access)
+
+### Core Methods
+
+```javascript
+// Field access
+frappe.web_form.get_field("customer")          // Field object
+frappe.web_form.get_input("customer")          // jQuery input element
+frappe.web_form.has_field("customer")          // Boolean
+
+// Values
+frappe.web_form.get_value("customer")          // Single field value
+frappe.web_form.set_value("customer", "CUST-001")  // Set value (returns Promise)
+frappe.web_form.get_values()                   // All values as object
+frappe.web_form.set_values({ customer: "CUST-001", date: "2024-01-01" })
+frappe.web_form.clear()                        // Clear all fields
+
+// Field properties
+frappe.web_form.set_df_property("customer", "hidden", 1)
+frappe.web_form.set_df_property("customer", "reqd", 1)
+frappe.web_form.set_df_property("customer", "read_only", 1)
+
+// Form actions
+frappe.web_form.save()
+frappe.web_form.delete_form()
+frappe.web_form.discard_form()
+
+// Events
+frappe.web_form.on("customer", function(field, value) {
+    // Runs when customer field changes
+});
+frappe.web_form.events.on("after_load", function() { });
+frappe.web_form.events.on("after_save", function() { });
+```
+
+### Form State Properties
+
+```javascript
+frappe.web_form.is_new          // Creating new vs editing existing
+frappe.web_form.in_edit_mode    // Edit mode
+frappe.web_form.in_view_mode    // View-only mode
+frappe.web_form.doc             // Current document data
+frappe.web_form.doc_type        // Target DocType
+frappe.web_form.name            // Web form name
+frappe.web_form.fields_dict     // All fields by name
+frappe.web_form.fields_list     // All fields in order
+```
+
+### Multi-Step Forms
+
+```javascript
+frappe.web_form.is_multi_step_form          // Boolean
+frappe.web_form.current_section             // Current section index
+frappe.web_form.page_breaks                 // jQuery page break elements
+frappe.web_form.toggle_section()            // Move to next section
+frappe.web_form.validate_section()          // Validate current section
+frappe.web_form.is_next_section_empty(n)    // Check if section n is empty
+```
+
+### Common Patterns
+
+```javascript
+// Dynamic field visibility
+frappe.web_form.on("status", function(field, value) {
+    frappe.web_form.set_df_property("notes", "hidden", value !== "Rejected");
+    frappe.web_form.set_df_property("notes", "reqd", value === "Rejected");
+});
+
+// Auto-fill from server
+frappe.web_form.on("customer", function(field, value) {
+    if (value) {
+        frappe.call({
+            method: "frappe.client.get_value",
+            args: { doctype: "Customer", filters: { name: value }, fieldname: ["email_id", "phone"] },
+            callback: (r) => {
+                if (r.message) {
+                    frappe.web_form.set_values({
+                        email: r.message.email_id,
+                        phone: r.message.phone
+                    });
+                }
+            }
+        });
+    }
+});
+
+// Validation before save
+frappe.web_form.on("submit", function() {
+    let email = frappe.web_form.get_value("email");
+    if (email && !frappe.utils.validate_email_address(email)) {
+        frappe.msgprint("Invalid email");
+        return false;
+    }
+});
+```
+
+### Fixing `fetch_from` in Web Forms
+
+`fetch_from` doesn't work in Web Forms because they use `FieldGroup` instead of `Form`. Fix with a client script:
+
+```javascript
+frappe.ready(function() {
+    setTimeout(setupChildTableFetchFrom, 2000);
+});
+
+function setupChildTableFetchFrom() {
+    if (!frappe.web_form.fields_dict) return;
+
+    Object.keys(frappe.web_form.fields_dict).forEach(fieldname => {
+        const field = frappe.web_form.fields_dict[fieldname];
+        if (field?.df?.fieldtype !== "Table" || !field.df.fields) return;
+
+        const linkFields = field.df.fields.filter(f => f.fieldtype === "Link");
+        linkFields.forEach(linkField => {
+            const fetchFields = field.df.fields.filter(f =>
+                f.fetch_from?.startsWith(linkField.fieldname + ".")
+            );
+            if (!fetchFields.length) return;
+
+            const selector = `[data-fieldname="${fieldname}"]`;
+            $(document).on("change blur", `${selector} input[data-fieldname="${linkField.fieldname}"]`, function() {
+                const value = $(this).val()?.trim();
+                const rowIndex = $(this).closest("[data-idx]").attr("data-idx");
+                if (!value) return;
+
+                const sourceFields = [...new Set(fetchFields.map(f => f.fetch_from.split(".")[1]))];
+                frappe.call({
+                    method: "frappe.client.get_value",
+                    args: { doctype: linkField.options, fieldname: sourceFields.join(","), filters: { name: value } },
+                    callback: (r) => {
+                        if (r.message) {
+                            fetchFields.forEach(ff => {
+                                const src = ff.fetch_from.split(".")[1];
+                                if (r.message[src]) {
+                                    $(`${selector} [data-idx="${rowIndex}"] [data-fieldname="${ff.fieldname}"]`)
+                                        .val(r.message[src]).trigger("change");
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+        });
+    });
+}
+```
+
+**Note:** This solution only works for logged-in users. Guest users typically don't have permission to call `frappe.client.get_value`.

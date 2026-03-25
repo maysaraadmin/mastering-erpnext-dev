@@ -794,3 +794,255 @@ console.log(frappe.ui.keys.get_all_shortcuts());
 6. **Never use `cur_frm` inside form event handlers** — use the `frm` parameter
 7. **Use `frm.set_df_property()`** for dynamic field property changes
 8. **Clean up event listeners** if you add them manually to avoid memory leaks
+
+
+---
+
+## 18. Quick Entry — Adding `get_query` Filters
+
+Quick Entry forms don't execute DocType custom scripts, so `get_query` filters defined in form scripts don't apply. Fix this by monkey-patching `frappe.ui.form.make_quick_entry`.
+
+### The Pattern
+
+```javascript
+// In your app's bundle JS (loaded via app_include_js)
+
+// 1. Define rules per DocType
+window.quick_entry_query_rules = {
+    "Sales Order": {
+        // Filter contacts by selected customer
+        contact: (dialog) => ({
+            filters: { customer: dialog.get_value("customer") }
+        }),
+        customer_address: (dialog) => ({
+            filters: { customer: dialog.get_value("customer") }
+        }),
+    },
+    "Purchase Order": {
+        contact: (dialog) => ({
+            filters: { supplier: dialog.get_value("supplier") }
+        }),
+    },
+};
+
+// 2. Monkey-patch make_quick_entry
+(function() {
+    const original = frappe.ui.form.make_quick_entry;
+
+    frappe.ui.form.make_quick_entry = function(...args) {
+        return original.apply(this, args).then((qe) => {
+            const rules = window.quick_entry_query_rules?.[qe.doctype];
+            if (!rules || !qe.dialog?.fields_dict) return qe;
+
+            const dialog = qe.dialog;
+
+            // Apply get_query rules
+            Object.keys(rules).forEach((fname) => {
+                const f = dialog.fields_dict[fname];
+                if (!f) return;
+                const rule = rules[fname];
+                f.get_query = typeof rule === "function" ? () => rule(dialog) : rule;
+            });
+
+            return qe;
+        });
+    };
+})();
+```
+
+### Register in `hooks.py`
+
+```python
+app_include_js = ["/assets/myapp/js/myapp.bundle.js"]
+```
+
+### How It Works
+
+1. User clicks "+" on a Link field → `make_quick_entry()` is called
+2. Our patch intercepts after the dialog is created
+3. We attach `get_query` functions to the specified fields
+4. When the user opens a Link field dropdown, `get_query` is called with the dialog instance
+5. `dialog.get_value("customer")` returns the current customer value
+6. Only matching records are shown
+
+### Static Filters (No Dynamic Values)
+
+```javascript
+window.quick_entry_query_rules = {
+    "Sales Order": {
+        item_code: {
+            filters: { disabled: 0, is_stock_item: 1 }
+        }
+    }
+};
+```
+
+### Clearing Dependent Fields on Change
+
+```javascript
+(function() {
+    const original = frappe.ui.form.make_quick_entry;
+
+    frappe.ui.form.make_quick_entry = function(...args) {
+        return original.apply(this, args).then((qe) => {
+            const rules = window.quick_entry_query_rules?.[qe.doctype];
+            if (!rules || !qe.dialog?.fields_dict) return qe;
+
+            const dialog = qe.dialog;
+
+            // Wrap onchange to clear dependent fields
+            const customerField = dialog.fields_dict["customer"];
+            if (customerField) {
+                const orig = customerField.df.onchange;
+                customerField.df.onchange = () => {
+                    orig && orig();
+                    dialog.set_value("contact", "");
+                    dialog.set_value("customer_address", "");
+                };
+            }
+
+            // Apply get_query rules
+            Object.keys(rules).forEach((fname) => {
+                const f = dialog.fields_dict[fname];
+                if (!f) return;
+                const rule = rules[fname];
+                f.get_query = typeof rule === "function" ? () => rule(dialog) : rule;
+            });
+
+            return qe;
+        });
+    };
+})();
+```
+
+
+---
+
+## 19. Hiding the PDF Button in Print Format
+
+Frappe's print page shows "Full Page" and "PDF" buttons by default. To hide them, inject a global CSS file via `app_include_css`.
+
+**Step 1:** Create `apps/your_app/your_app/public/css/desk.css`
+
+**Step 2:** Register it in `hooks.py`:
+
+```python
+app_include_css = ["assets/your_app/css/desk.css"]
+```
+
+**Step 3:** Add the CSS rules:
+
+```css
+/* Hide the "Try the new Print Designer" message */
+#page-print .custom-actions .inner-page-message {
+    display: none !important;
+}
+
+/* Hide Full Page and PDF buttons */
+#page-print .custom-actions button:nth-of-type(1),
+#page-print .custom-actions button:nth-of-type(2) {
+    display: none !important;
+}
+
+/* Hide from dropdown on small screens */
+#page-print .dropdown-menu .user-action:has([data-label="Full%20Page"]),
+#page-print .dropdown-menu .user-action:has([data-label="PDF"]) {
+    display: none !important;
+}
+```
+
+This is a CSS-only approach — no JavaScript needed. The buttons are hidden globally for all users on that app.
+
+---
+
+## 20. Removing the "New" / "Add" Button from List View
+
+To prevent users from creating records directly from a DocType's list view (e.g., when records should only be created from another DocType):
+
+**Create `your_doctype_list.js`** in the DocType's folder:
+
+```javascript
+// apps/your_app/your_app/doctype/your_doctype/your_doctype_list.js
+
+frappe.listview_settings["Your Doctype"] = {
+    onload(listview) {
+        listview.can_create = false;
+    }
+};
+```
+
+- `can_create = false` removes the "Add" button from the UI
+- This is UI-only — it does **not** restrict API or script creation
+- To fully restrict creation, also update Role Permissions or add server-side validation in `validate()`
+
+---
+
+## 21. Preventing Auto-Save After File Attachment
+
+By default, Frappe auto-saves the document when an `Attach` field is updated. This is triggered inside `frappe/public/js/frappe/form/controls/attach.js`. If you have multiple attach fields, this causes multiple unwanted saves.
+
+**Fix using monkey patching** — extend the class and comment out the save calls:
+
+**Step 1:** Create `apps/your_app/your_app/public/js/attach.js`
+
+**Step 2:** Register in `hooks.py`:
+
+```python
+app_include_js = ["/assets/your_app/js/attach.js"]
+```
+
+**Step 3:** Override the class:
+
+```javascript
+// apps/your_app/public/js/attach.js
+
+frappe.ui.form.ControlAttach = class ControlAttach extends frappe.ui.form.ControlAttach {
+    clear_attachment() {
+        let me = this;
+        if (this.frm) {
+            me.parse_validate_and_set_in_model(null);
+            me.refresh();
+            me.frm.attachments.remove_attachment_by_filename(me.value, async () => {
+                await me.parse_validate_and_set_in_model(null);
+                me.refresh();
+                // Auto-save removed: me.frm.doc.docstatus == 1 ? me.frm.save("Update") : me.frm.save();
+            });
+        } else {
+            this.dataurl = null;
+            this.fileobj = null;
+            this.set_input(null);
+            this.parse_validate_and_set_in_model(null);
+            this.refresh();
+        }
+    }
+
+    async on_upload_complete(attachment) {
+        if (this.frm) {
+            await this.parse_validate_and_set_in_model(attachment.file_url);
+            this.frm.attachments.update_attachment(attachment);
+            // Auto-save removed: this.frm.doc.docstatus == 1 ? this.frm.save("Update") : this.frm.save();
+        }
+        this.set_value(attachment.file_url);
+    }
+};
+
+// Also extend ControlAttachImage so it inherits from our patched version
+frappe.ui.form.ControlAttachImage = class ControlAttachImage extends frappe.ui.form.ControlAttach {
+    make_input() {
+        super.make_input();
+        let $file_link = this.$value.find(".attached-file-link");
+        $file_link.popover({
+            trigger: "hover",
+            placement: "top",
+            content: () => `<div><img src="${this.get_value()}" width="150px" style="object-fit:contain;"/></div>`,
+            html: true,
+        });
+    }
+    set_upload_options() {
+        super.set_upload_options();
+        this.upload_options.restrictions.allowed_file_types = ["image/*"];
+    }
+};
+```
+
+**Why extend `ControlAttachImage` too?** It inherits from `ControlAttach` — if you don't re-extend it from your patched version, it will still use the original auto-save behavior.

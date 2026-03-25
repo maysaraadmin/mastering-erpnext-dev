@@ -473,3 +473,117 @@ frm.refresh_field("status");
 frm.set_df_property("field_name", "read_only", 1);
 frm.set_df_property("field_name", "read_only", 0);
 ```
+
+
+---
+
+## 📌 Addendum: Adding Comments Programmatically
+
+### `doc.add_comment()`
+
+```python
+doc = frappe.get_doc("Sales Order", "SO-0001")
+comment = doc.add_comment("Comment", "Order reviewed and approved")
+```
+
+### Comment Types
+
+| Type | Use Case |
+|---|---|
+| `Comment` | User notes, discussions |
+| `Info` | System/integration logs |
+| `Workflow` | Workflow state changes |
+| `Assigned` | Task assignments |
+| `Assignment Completed` | Assignment completion |
+| `Attachment` | File uploads |
+| `Attachment Removed` | File deletions |
+| `Shared` / `Unshared` | Document sharing |
+| `Bot` | Automated messages |
+| `Edit` | Manual edit logs |
+| `Created` / `Updated` / `Submitted` / `Cancelled` | Lifecycle events |
+
+### Full Signature
+
+```python
+doc.add_comment(
+    comment_type="Comment",   # Default
+    text=None,                # Comment content (defaults to comment_type)
+    comment_email=None,       # Defaults to frappe.session.user
+    comment_by=None           # Display name
+)
+```
+
+### Mentioning Users
+
+```python
+comment_text = '''
+<span class="mention" data-id="john@example.com" data-value="John Doe" data-denotation-char="@">@John Doe</span>
+Please review this order.
+'''
+doc.add_comment("Comment", comment_text)
+```
+
+Mentioned users receive a notification automatically.
+
+### Practical Examples
+
+```python
+# Log integration activity
+def sync_with_external_system(self):
+    try:
+        response = make_api_call(self.name)
+        self.add_comment("Info", f"Synced successfully. Ref: {response.get('id')}")
+    except Exception as e:
+        self.add_comment("Info", f"Sync failed: {str(e)}")
+
+# Log workflow change
+def on_update(self):
+    if self.has_value_changed("workflow_state"):
+        old = self.get_doc_before_save().workflow_state
+        self.add_comment("Workflow", f"State changed: {old} → {self.workflow_state}")
+
+# Add comment as system user
+doc.add_comment(
+    comment_type="Info",
+    text="Processed by background job",
+    comment_email="system@example.com",
+    comment_by="System"
+)
+```
+
+### Retrieving Comments
+
+```python
+# Get all comments for a document
+comments = frappe.get_all(
+    "Comment",
+    filters={"reference_doctype": "Sales Order", "reference_name": "SO-0001"},
+    fields=["content", "comment_type", "comment_email", "creation"],
+    order_by="creation desc"
+)
+
+# Get from cache (faster, last 100 only)
+import json
+doc = frappe.get_doc("Sales Order", "SO-0001")
+cached = json.loads(doc.get("_comments") or "[]")
+```
+
+### From Client Side
+
+```javascript
+frappe.call({
+    method: "frappe.desk.form.utils.add_comment",
+    args: {
+        reference_doctype: frm.doctype,
+        reference_name: frm.docname,
+        content: "Order reviewed",
+        comment_email: frappe.session.user,
+        comment_by: frappe.session.user_fullname,
+    },
+    callback: () => frm.reload_doc()
+});
+```
+
+### Storage
+
+Comments are stored in the `Comment` DocType. The parent document's `_comments` field caches the last 100 comments (first 100 chars each) for fast display. Real-time updates are pushed via Socket.IO.

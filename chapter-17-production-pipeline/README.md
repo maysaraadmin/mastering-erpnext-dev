@@ -2900,3 +2900,131 @@ docker build \
 # 4. Push to Docker Hub
 docker push myorg/my-frappe-app:latest
 ```
+
+
+---
+
+## 📌 Addendum: App Release Process
+
+### Branch Strategy
+
+A typical Frappe app uses three long-lived branches:
+
+```
+dev  ←  staging  ←  release
+```
+
+- `dev` — active development, may be unstable
+- `staging` — tested, pre-production code
+- `release` — production-ready, tagged versions
+
+### Step-by-Step Release Workflow
+
+**Step 1: Merge staging → release (after QA + client approval)**
+
+Create a PR from `staging` into `release` and merge it.
+
+**Step 2: Update version and changelog**
+
+```bash
+git pull
+git checkout release
+
+# Edit CHANGELOG.md
+```
+
+```markdown
+## [0.4.0] - 2025-09-06
+- Added user login feature
+- Fixed dashboard bug
+```
+
+**Step 3: Commit with a bump message**
+
+```bash
+git add CHANGELOG.md
+git commit -m "chore(release): bump version to 0.4.0"
+git push upstream release
+```
+
+The `chore(release): bump version` format follows [Conventional Commits](https://www.conventionalcommits.org/). Common prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`.
+
+**Step 4: Sync staging with release (rebase)**
+
+```bash
+git checkout staging
+git rebase release
+git push upstream staging
+```
+
+Rebase keeps history linear — no merge commits. Staging becomes an exact copy of release.
+
+**Step 5: Sync dev with staging (not release)**
+
+```bash
+git checkout dev
+git rebase staging
+git push upstream dev
+```
+
+Dev rebases from staging (not release directly) because dev may have ongoing work not yet in release.
+
+**Step 6: Create a GitHub Release**
+
+1. Go to **GitHub → Releases → Draft a new release**
+2. Create a tag matching the version (e.g., `v0.4.0`)
+3. Paste the changelog content as the release description
+4. Publish
+
+### Building and Pushing Docker Images
+
+After tagging a release, build a Docker image with the new version:
+
+**Create `apps.json`:**
+
+```json
+[
+  { "url": "https://github.com/frappe/erpnext", "branch": "version-15" },
+  { "url": "https://YOUR_PAT@github.com/your-org/your-app.git", "branch": "release" }
+]
+```
+
+**Build:**
+
+```bash
+export APPS_JSON_BASE64=$(base64 -w 0 apps.json)
+
+git clone https://github.com/frappe/frappe_docker
+cd frappe_docker
+
+docker build \
+  --no-cache \
+  --build-arg FRAPPE_BRANCH=version-15 \
+  --build-arg APPS_JSON_BASE64=$APPS_JSON_BASE64 \
+  --file images/layered/Containerfile \
+  --tag your-dockerhub-username/your-app:0.4.0 \
+  --tag your-dockerhub-username/your-app:latest \
+  .
+```
+
+**Push to Docker Hub:**
+
+```bash
+docker login -u your-dockerhub-username
+docker push your-dockerhub-username/your-app:0.4.0
+docker push your-dockerhub-username/your-app:latest
+```
+
+**Verify:**
+
+```bash
+docker images
+# Visit: https://hub.docker.com/r/your-dockerhub-username/your-app
+```
+
+### Final State After Release
+
+- `release`, `staging`, and `dev` share aligned history
+- GitHub release is published and tagged
+- Docker image is built and pushed to registry
+- Production deployment can pull the new image

@@ -1367,3 +1367,232 @@ def create_purchase_from_sales(sales_order):
 - Use `freeze: true` for operations that take time
 - Validate on the client side before calling the server
 - Use `doc.update({...})` instead of setting fields one by one
+
+
+---
+
+## 📌 Addendum: Decorators in Frappe Controllers
+
+### What Are Decorators?
+
+A decorator modifies or enhances a function/method without changing its source code.
+
+```python
+@decorator
+def func():
+    pass
+# Equivalent to: func = decorator(func)
+```
+
+### `@property` — Computed Attributes
+
+Converts a method into a read-only attribute. Accessed like a field, computed dynamically.
+
+```python
+class AccountsController(Document):
+    @property
+    def company_currency(self):
+        if not hasattr(self, "__company_currency"):
+            self.__company_currency = get_company_currency(self.company)
+        return self.__company_currency
+
+# Usage (no parentheses!)
+print(doc.company_currency)  # Not doc.company_currency()
+```
+
+**When to use `@property`:**
+- Computed values based on other fields
+- Lazy loading of related data
+- Semantic aliases for existing fields
+- Boolean checks (`is_overdue`, `is_remote_file`)
+
+**Real examples from Frappe/ERPNext:**
+
+```python
+# frappe/core/doctype/file/file.py
+@property
+def is_remote_file(self):
+    if self.file_url:
+        return self.file_url.startswith(URL_PREFIXES)
+    return not self.content
+
+# frappe/core/doctype/communication/communication.py
+@property
+def sender_mailid(self):
+    return parse_addr(self.sender)[1] if self.sender else ""
+```
+
+### `@cached_property` — Cached Computed Attributes
+
+Like `@property` but caches the result after the first access. From `functools`.
+
+```python
+from functools import cached_property
+
+class BaseDocument:
+    @cached_property
+    def meta(self):
+        return frappe.get_meta(self.doctype)
+
+    @cached_property
+    def permitted_fieldnames(self) -> set[str]:
+        return set(get_permitted_fields(doctype=self.doctype))
+```
+
+**`@property` vs `@cached_property`:**
+
+| | `@property` | `@cached_property` |
+|---|---|---|
+| Computed | Every access | Only first access |
+| Use for | Dynamic values | Expensive, stable values |
+| Memory | No extra | Stores result |
+
+### `@frappe.whitelist()` — API Exposure
+
+Makes a method callable from JavaScript or external APIs.
+
+```python
+class SalesOrder(Document):
+    @frappe.whitelist()
+    def approve_order(self):
+        self.status = "Approved"
+        self.save()
+        return {"status": "success"}
+
+# Module-level function
+@frappe.whitelist()
+def get_pending_orders(customer=None):
+    return frappe.get_all("Sales Order", filters={"status": "Pending"})
+
+# Allow guest access
+@frappe.whitelist(allow_guest=True)
+def public_catalog():
+    return frappe.get_all("Item", filters={"show_in_website": 1})
+
+# Restrict HTTP method
+@frappe.whitelist(methods=["POST"])
+def create_order(data):
+    pass
+```
+
+**Calling from JavaScript:**
+
+```javascript
+// Call doc method
+frm.call({
+    method: "approve_order",
+    doc: frm.doc,
+    callback: (r) => console.log(r.message)
+});
+
+// Call module function
+frappe.call({
+    method: "myapp.api.get_pending_orders",
+    args: { customer: "CUST-001" },
+    callback: (r) => console.log(r.message)
+});
+```
+
+**Calling via Postman:**
+
+```http
+POST /api/method/run_doc_method
+{ "method": "approve_order", "dt": "Sales Order", "dn": "SO-0001" }
+
+POST /api/method/myapp.api.get_pending_orders
+{ "customer": "CUST-001" }
+```
+
+### `@staticmethod` — Class-Scoped Utilities
+
+No `self` or `cls`. Required for Virtual DocType methods.
+
+```python
+class APILog(Document):
+    # Virtual DocType — these are required
+    @staticmethod
+    def get_list(args):
+        return fetch_logs_from_api()
+
+    @staticmethod
+    def get_count(args):
+        return len(fetch_logs_from_api())
+
+    @staticmethod
+    def get_stats(args):
+        return {}
+```
+
+### `@classmethod` — Factory Methods
+
+Receives the class (`cls`) instead of the instance. Useful for alternative constructors.
+
+```python
+class SalesOrder(Document):
+    @classmethod
+    def create_from_quotation(cls, quotation_name):
+        quotation = frappe.get_doc("Quotation", quotation_name)
+        order = cls({
+            "doctype": "Sales Order",
+            "customer": quotation.customer,
+        })
+        for item in quotation.items:
+            order.append("items", {"item_code": item.item_code, "qty": item.qty})
+        return order
+```
+
+### `@Document.hook` — Extensible Methods
+
+Makes a method hookable — other apps can extend it via `doc_events` in `hooks.py`.
+
+```python
+# In frappe/model/document.py
+class Document:
+    @Document.hook
+    def validate(self):
+        pass  # Other apps can extend this
+```
+
+```python
+# In another app's hooks.py
+doc_events = {
+    "Sales Order": {
+        "validate": "custom_app.validations.validate_sales_order"
+    }
+}
+```
+
+### Custom Decorators
+
+```python
+# Permission check decorator
+from functools import wraps
+
+def require_permission(doctype, ptype="read"):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if not frappe.has_permission(doctype, ptype):
+                frappe.throw(f"No {ptype} permission for {doctype}")
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@frappe.whitelist()
+@require_permission("Sales Order", "write")
+def update_order(order_name, status):
+    doc = frappe.get_doc("Sales Order", order_name)
+    doc.status = status
+    doc.save()
+```
+
+### Quick Reference
+
+| Decorator | Purpose | Access |
+|---|---|---|
+| `@property` | Computed attribute, recalculated every time | `obj.attr` |
+| `@cached_property` | Computed attribute, cached after first call | `obj.attr` |
+| `@frappe.whitelist()` | Expose to HTTP API | `/api/method/...` |
+| `@staticmethod` | Utility, no instance/class needed | `Class.method()` |
+| `@classmethod` | Factory/class-level operations | `Class.method()` |
+| `@Document.hook` | Extensible by other apps | Via `doc_events` |

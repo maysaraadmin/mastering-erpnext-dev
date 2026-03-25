@@ -2346,3 +2346,184 @@ def execute(filters=None):
     message = f"Showing {offset + 1}–{offset + len(data)} of {total} records"
     return get_columns(), data, message
 ```
+
+
+---
+
+## 📌 Addendum: Script Report Performance Optimization
+
+### Why Reports Crash or Consume 100% RAM
+
+The most common causes:
+
+1. **No filters/limits** — `SELECT * FROM tabGL Entry` with no WHERE clause loads millions of rows
+2. **N+1 queries** — fetching related data inside a loop (1 query + N queries)
+3. **`SELECT *`** — loading 50+ columns when you need 5
+4. **Python aggregation** — doing `SUM`/`GROUP BY` in Python instead of SQL
+5. **`frappe.get_doc()` in a loop** — loads full document + all child tables for every row
+
+### The Automatic 15-Second Threshold
+
+Frappe starts a background timer when a report runs. If execution exceeds 15 seconds, Frappe automatically enables "Prepared Report" mode for that report. The execution time is cached in Redis for monitoring.
+
+The frontend also refuses to render more than 100,000 rows (configurable via `sysdefaults.max_report_rows`) — it shows a warning and suggests exporting instead.
+
+### Fix 1: Mandatory Filters + LIMIT
+
+```python
+def execute(filters=None):
+    if not filters.get("from_date") or not filters.get("to_date"):
+        frappe.throw("From Date and To Date are required")
+
+    conditions = "posting_date BETWEEN %(from_date)s AND %(to_date)s"
+    if filters.get("customer"):
+        conditions += " AND customer = %(customer)s"
+
+    data = frappe.db.sql(f"""
+        SELECT name, customer, posting_date, grand_total, status
+        FROM `tabSales Order`
+        WHERE {conditions}
+        ORDER BY posting_date DESC
+        LIMIT 10000
+    """, filters, as_dict=True)
+
+    return get_columns(), data
+```
+
+### Fix 2: Eliminate N+1 with a JOIN
+
+```python
+# BAD — 10,001 queries for 10,000 orders
+for order in orders:
+    customer_name = frappe.db.get_value("Customer", order.customer, "customer_name")
+
+# GOOD — 1 query
+data = frappe.db.sql("""
+    SELECT so.name, c.customer_name, so.grand_total
+    FROM `tabSales Order` so
+    INNER JOIN `tabCustomer` c ON so.customer = c.name
+    WHERE so.posting_date BETWEEN %(from_date)s AND %(to_date)s
+    LIMIT 10000
+""", filters, as_dict=True)
+```
+
+### Fix 3: Aggregate in SQL, Not Python
+
+```python
+# BAD — loads millions of rows into Python, then aggregates
+items = frappe.db.sql("SELECT * FROM `tabSales Order Item`", as_dict=True)
+totals = {}
+for item in items:
+    totals[item.parent] = totals.get(item.parent, 0) + item.amount
+
+# GOOD — database does the aggregation
+data = frappe.db.sql("""
+    SELECT so.customer, SUM(soi.amount) as total_amount, COUNT(DISTINCT so.name) as orders
+    FROM `tabSales Order` so
+    INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+    WHERE so.posting_date BETWEEN %(from_date)s AND %(to_date)s
+    GROUP BY so.customer
+    ORDER BY total_amount DESC
+    LIMIT 1000
+""", filters, as_dict=True)
+```
+
+### Fix 4: Generators for Very Large Datasets
+
+When you must process large datasets row-by-row, use an unbuffered cursor with `as_iterator=True` for O(1) memory:
+
+```python
+def execute(filters=None):
+    data = []
+    with frappe.db.unbuffered_cursor():
+        rows = frappe.db.sql("""
+            SELECT name FROM `tabSales Order`
+            WHERE posting_date BETWEEN %(from_date)s AND %(to_date)s
+        """, filters, as_iterator=True)
+
+        for (order_name,) in rows:
+            data.append(process_order(order_name))
+            if len(data) >= 10000:
+                break
+
+    return get_columns(), data
+```
+
+### Fix 5: Cache Repeated Lookups
+
+```python
+# BAD — same customer queried multiple times
+for order in orders:
+    ltv = frappe.db.sql("SELECT SUM(grand_total) FROM `tabSales Order` WHERE customer=%s", order.customer)[0][0]
+
+# GOOD — cache per customer
+ltv_cache = {}
+for order in orders:
+    if order.customer not in ltv_cache:
+        ltv_cache[order.customer] = frappe.db.sql(
+            "SELECT SUM(grand_total) FROM `tabSales Order` WHERE customer=%s AND docstatus=1",
+            order.customer
+        )[0][0] or 0
+```
+
+### Fix 6: Pagination
+
+```python
+def execute(filters=None):
+    page = int(filters.get("page", 1))
+    page_size = int(filters.get("page_size", 500))
+    offset = (page - 1) * page_size
+
+    total = frappe.db.sql("""
+        SELECT COUNT(*) FROM `tabSales Order`
+        WHERE posting_date BETWEEN %(from_date)s AND %(to_date)s
+    """, filters)[0][0]
+
+    data = frappe.db.sql("""
+        SELECT name, customer, posting_date, grand_total
+        FROM `tabSales Order`
+        WHERE posting_date BETWEEN %(from_date)s AND %(to_date)s
+        ORDER BY posting_date DESC
+        LIMIT %(page_size)s OFFSET %(offset)s
+    """, {**filters, "page_size": page_size, "offset": offset}, as_dict=True)
+
+    message = f"Showing {offset + 1}–{offset + len(data)} of {total} records"
+    return get_columns(), data, message
+```
+
+### Prepared Reports — For Heavy Operations
+
+Enable via Report DocType → check "Enable Prepared Report". The same `execute()` function runs in the background queue (up to 25 minutes). Results are compressed (gzip) and stored as an attachment. Users get a real-time notification when done.
+
+**When to use:** report takes > 15 seconds, processes 100k+ rows, or is run frequently with the same filters.
+
+### Using EXPLAIN to Diagnose Slow Queries
+
+```python
+explain = frappe.db.sql("EXPLAIN SELECT name FROM `tabSales Order` WHERE posting_date > '2024-01-01'", as_dict=True)
+for row in explain:
+    print(row.type, row.rows, row.Extra)
+    # type=ALL means full table scan (bad)
+    # type=ref means index lookup (good)
+```
+
+Add an index to fix a full table scan:
+
+```sql
+ALTER TABLE `tabSales Order` ADD INDEX idx_posting_date (posting_date);
+```
+
+Or in Frappe DocType definition, set `search_index: 1` on the field.
+
+### Quick Reference
+
+| Problem | Fix |
+|---|---|
+| No filters | Add mandatory date range + LIMIT |
+| N+1 queries | Use JOIN in single query |
+| `SELECT *` | Select only needed columns |
+| Python aggregation | Use SQL `GROUP BY` / `SUM` |
+| Large dataset in memory | Use `as_iterator=True` + unbuffered cursor |
+| Repeated lookups | Cache in dict before loop |
+| Report > 15 seconds | Enable Prepared Report |
+| > 100k rows | Use Prepared Report + export |

@@ -9,6 +9,9 @@ By the end of this chapter, you will master:
 - **Leveraging caching** strategies with Redis
 - **Optimizing background** jobs and worker scaling
 - **Improving frontend** performance and API efficiency
+- **Troubleshooting timeout issues** and system freezes
+- **Production performance monitoring** and optimization
+- **Memory and resource management** for high-load scenarios
 
 ## 📚 Chapter Topics
 
@@ -2833,6 +2836,467 @@ This runs automatically before every `bench migrate`, keeping the table clean.
 
 **Why duplicates accumulate:** Fixtures assign roles to users on each migration without checking if the role is already assigned. Since there's no unique constraint on user-role combinations by default, records pile up silently over time.
 
+### 16.7 Production Performance Troubleshooting
+
+## Fixing Production Request Timeout & Performance Issues
+
+This section covers common solutions for fixing **Production Request Timeout** in Frappe and improving system performance by tuning key services such as **Gunicorn**, **MariaDB**, and **Redis**.
+
+### Check Background Workers and Scheduler
+
+Use `bench doctor` to verify that workers and scheduler are running properly:
+
+```bash
+bench doctor
+```
+
+**Expected Output:**
+```
+Checking system health...
+✓ Workers are running
+✓ Scheduler is running
+✓ Redis is running
+✓ Database is running
+```
+
+If workers or the scheduler are down, timeout issues and stuck jobs may occur.
+
+**Common Issues:**
+- Workers not running: `bench start` or restart services
+- Scheduler not running: Check cron jobs and scheduler logs
+- Redis connection issues: Check Redis server status
+
+### Increase HTTP Timeout
+
+Increase the HTTP timeout for long-running requests:
+
+```bash
+bench config http_timeout 600   # Timeout in seconds
+```
+
+**When to increase timeout:**
+- Large data imports/exports
+- Complex report generation
+- Bulk operations
+- Slow external API calls
+
+### Apply Config Changes to Supervisor and Nginx
+
+After updating the timeout, regenerate supervisor and nginx configs:
+
+```bash
+bench setup supervisor
+bench setup nginx
+bench restart
+```
+
+### Optimize Gunicorn Workers
+
+For high-traffic sites, optimize Gunicorn worker configuration:
+
+```bash
+# Edit supervisor config
+sudo nano /etc/supervisor/conf.d/frappe.conf
+```
+
+**Gunicorn Configuration:**
+```ini
+[program:frappe-frappe]
+command=/home/frappe/frappe-bench/env/bin/gunicorn --bind=0.0.0.0:8000 --workers=4 --timeout=600 --max-requests=1000 --max-requests-jitter=100 frappe.app:application
+```
+
+**Worker Count Formula:**
+```python
+# Recommended workers = (2 * CPU cores) + 1
+import multiprocessing
+workers = (2 * multiprocessing.cpu_count()) + 1
+print(f"Recommended workers: {workers}")
+```
+
+### Database Performance Tuning
+
+**MariaDB Configuration Optimization:**
+
+```sql
+-- Edit /etc/mysql/my.cnf or MariaDB config file
+[mysqld]
+# Memory settings
+innodb_buffer_pool_size = 2G          # 70-80% of available RAM
+innodb_log_file_size = 256M           # Larger for high write workloads
+innodb_log_buffer_size = 16M
+innodb_flush_log_at_trx_commit = 2    # Better performance, less durability
+
+# Connection settings
+max_connections = 200                  # Increase for high concurrency
+max_connect_errors = 1000
+connect_timeout = 10
+wait_timeout = 600
+interactive_timeout = 600
+
+# Query cache
+query_cache_type = 1
+query_cache_size = 256M
+query_cache_limit = 2M
+
+# Slow query logging
+slow_query_log = 1
+slow_query_log_file = /var/log/mysql/slow.log
+long_query_time = 2
+
+# InnoDB settings
+innodb_file_per_table = 1
+innodb_flush_method = O_DIRECT
+innodb_io_capacity = 2000
+innodb_read_io_threads = 8
+innodb_write_io_threads = 8
+```
+
+**Apply Changes:**
+```bash
+sudo systemctl restart mysql
+```
+
+### Redis Optimization
+
+**Redis Configuration:**
+
+```conf
+# Edit /etc/redis/redis.conf
+# Memory settings
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+
+# Persistence settings
+save 900 1
+save 300 10
+save 60 10000
+
+# Network settings
+tcp-keepalive 60
+timeout 300
+
+# Performance settings
+tcp-backlog 511
+databases 16
+
+# Logging
+loglevel notice
+logfile /var/log/redis/redis-server.log
+```
+
+**Redis Monitoring:**
+```bash
+# Monitor Redis performance
+redis-cli info memory
+redis-cli info stats
+redis-cli info server
+```
+
+### System Resource Monitoring
+
+**Memory Usage Analysis:**
+```bash
+# Check memory usage
+free -h
+top
+
+# Check Frappe process memory
+ps aux | grep frappe
+ps aux | grep gunicorn
+ps aux | grep redis
+ps aux | grep mysql
+```
+
+**CPU Usage Analysis:**
+```bash
+# Check CPU usage
+top -p $(pgrep -d',' frappe)
+htop
+
+# Check process count
+ps -ef | grep frappe | wc -l
+```
+
+**Disk I/O Analysis:**
+```bash
+# Check disk I/O
+iostat -x 1
+iotop
+
+# Check disk space
+df -h
+du -sh /home/frappe/frappe-bench
+```
+
+### Common Performance Issues and Solutions
+
+#### Issue 1: System Freezes Under Load
+
+**Symptoms:**
+- No response to HTTP requests
+- High CPU usage
+- Database connections timing out
+
+**Solutions:**
+```bash
+# 1. Check for stuck processes
+ps aux | grep frappe | grep -v grep
+kill -9 <stuck-process-pid>
+
+# 2. Restart services
+bench restart
+
+# 3. Check system resources
+free -h
+df -h
+
+# 4. Increase worker timeout
+bench config http_timeout 1200
+bench setup supervisor
+bench restart
+```
+
+#### Issue 2: Database Connection Exhaustion
+
+**Symptoms:**
+- "Too many connections" errors
+- Slow query responses
+- Failed background jobs
+
+**Solutions:**
+```sql
+-- Increase max connections
+SET GLOBAL max_connections = 500;
+
+-- Check current connections
+SHOW STATUS LIKE 'Threads_connected';
+SHOW PROCESSLIST;
+
+-- Kill long-running queries
+KILL <process-id>;
+```
+
+```bash
+# Restart database to clear connections
+sudo systemctl restart mysql
+
+# Optimize connection pooling in Frappe
+bench config max_connections_per_user 50
+```
+
+#### Issue 3: Redis Memory Exhaustion
+
+**Symptoms:**
+- Redis out of memory errors
+- Cache misses
+- Slow API responses
+
+**Solutions:**
+```bash
+# Check Redis memory usage
+redis-cli info memory
+
+# Clear Redis cache
+redis-cli flushall
+
+# Increase Redis memory limit
+sudo nano /etc/redis/redis.conf
+# Set maxmemory 1gb
+
+# Restart Redis
+sudo systemctl restart redis
+```
+
+#### Issue 4: Slow Report Generation
+
+**Symptoms:**
+- Reports taking minutes to load
+- Database timeouts during report generation
+- High memory usage during reports
+
+**Solutions:**
+```python
+# Optimize report queries
+def get_report_data(filters):
+    # Use specific fields instead of *
+    fields = ["name", "date", "amount", "status"]
+    
+    # Add appropriate indexes
+    # Use EXPLAIN to analyze queries
+    frappe.db.sql("EXPLAIN SELECT ...")
+    
+    # Implement pagination
+    limit = 100
+    offset = (page - 1) * limit
+    
+    # Use caching for expensive reports
+    cache_key = f"report_data:{hash(str(filters))}"
+    cached_data = frappe.cache().get(cache_key)
+    
+    if cached_data:
+        return cached_data
+    
+    data = frappe.db.sql(query, as_dict=True)
+    frappe.cache().set(cache_key, data, expires_in_sec=3600)
+    
+    return data
+```
+
+### Performance Monitoring Scripts
+
+**Automated Health Check Script:**
+```python
+# health_check.py
+import frappe
+import time
+import psutil
+from datetime import datetime
+
+def system_health_check():
+    """Comprehensive system health monitoring"""
+    
+    health_status = {
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
+    }
+    
+    # Check database
+    try:
+        start_time = time.time()
+        frappe.db.sql("SELECT 1")
+        db_time = time.time() - start_time
+        health_status["checks"]["database"] = {
+            "status": "healthy" if db_time < 1.0 else "slow",
+            "response_time": db_time
+        }
+    except Exception as e:
+        health_status["checks"]["database"] = {
+            "status": "error",
+            "error": str(e)
+        }
+    
+    # Check Redis
+    try:
+        start_time = time.time()
+        frappe.cache().set("health_check", "test", expires_in_sec=60)
+        redis_time = time.time() - start_time
+        health_status["checks"]["redis"] = {
+            "status": "healthy" if redis_time < 0.1 else "slow",
+            "response_time": redis_time
+        }
+    except Exception as e:
+        health_status["checks"]["redis"] = {
+            "status": "error",
+            "error": str(e)
+        }
+    
+    # Check system resources
+    health_status["checks"]["system"] = {
+        "cpu_percent": psutil.cpu_percent(),
+        "memory_percent": psutil.virtual_memory().percent,
+        "disk_percent": psutil.disk_usage('/').percent
+    }
+    
+    # Check Frappe processes
+    try:
+        import subprocess
+        result = subprocess.run(['pgrep', '-f', 'frappe'], 
+                              capture_output=True, text=True)
+        frappe_processes = len(result.stdout.splitlines())
+        health_status["checks"]["frappe_processes"] = frappe_processes
+    except:
+        health_status["checks"]["frappe_processes"] = "unknown"
+    
+    return health_status
+
+def performance_alerts(health_status):
+    """Generate performance alerts"""
+    alerts = []
+    
+    # Database alerts
+    db_status = health_status["checks"].get("database", {})
+    if db_status.get("status") == "error":
+        alerts.append("CRITICAL: Database connection failed")
+    elif db_status.get("response_time", 0) > 2.0:
+        alerts.append("WARNING: Database response time slow")
+    
+    # Redis alerts
+    redis_status = health_status["checks"].get("redis", {})
+    if redis_status.get("status") == "error":
+        alerts.append("CRITICAL: Redis connection failed")
+    elif redis_status.get("response_time", 0) > 0.5:
+        alerts.append("WARNING: Redis response time slow")
+    
+    # System resource alerts
+    system = health_status["checks"].get("system", {})
+    if system.get("cpu_percent", 0) > 80:
+        alerts.append("WARNING: High CPU usage")
+    if system.get("memory_percent", 0) > 85:
+        alerts.append("CRITICAL: High memory usage")
+    if system.get("disk_percent", 0) > 90:
+        alerts.append("CRITICAL: Low disk space")
+    
+    return alerts
+
+# Schedule health check (add to crontab)
+# */5 * * * * /usr/bin/python3 /path/to/health_check.py >> /var/log/frappe_health.log
+```
+
+### Performance Optimization Checklist
+
+**Daily Monitoring:**
+- [ ] Check system resource usage
+- [ ] Monitor database query performance
+- [ ] Review error logs
+- [ ] Check background job queue
+- [ ] Verify cache hit rates
+
+**Weekly Optimization:**
+- [ ] Analyze slow query logs
+- [ ] Review and optimize indexes
+- [ ] Check database fragmentation
+- [ ] Monitor backup performance
+- [ ] Review user activity patterns
+
+**Monthly Maintenance:**
+- [ ] Database maintenance (optimize, analyze)
+- [ ] Review and update configuration
+- [ ] Clean up old logs and temporary files
+- [ ] Performance baseline updates
+- [ ] Security updates and patches
+
+---
+
+## 🎯 **Performance Best Practices Summary**
+
+### **Database Optimization**
+- Use appropriate indexes for query patterns
+- Monitor and optimize slow queries
+- Configure proper connection pooling
+- Regular database maintenance
+
+### **Caching Strategy**
+- Implement multi-level caching
+- Use Redis for session and application cache
+- Cache expensive computations
+- Monitor cache hit rates
+
+### **System Resources**
+- Monitor CPU, memory, and disk usage
+- Scale resources based on demand
+- Implement proper resource limits
+- Use load balancing for high availability
+
+### **Application Optimization**
+- Optimize Frappe queries and ORM usage
+- Implement background job processing
+- Use bulk operations for large datasets
+- Monitor and optimize API response times
+
+---
+
+**💡 Pro Tip**: Performance optimization is an ongoing process. Establish baselines, monitor continuously, and optimize iteratively. Use the health check script to detect issues before they impact users.
+
 ### Adding Indexes for Common Query Patterns
 
 ```python
@@ -2886,4 +3350,148 @@ bench setup nginx
 sudo supervisorctl reload
 sudo service nginx reload
 bench restart
+```
+
+
+---
+
+## 📌 Addendum: Database Table Trimming and Row Size Management
+
+### The 65KB Row Size Limit
+
+MySQL/MariaDB has a hard limit of 65,535 bytes per row (excluding BLOBs and TEXT). This limit applies to the **maximum possible size** of a row, not actual data.
+
+**What counts toward the limit:**
+- `VARCHAR` columns (Data, Link, Select fields) — 140-142 bytes each
+- `INT`, `DECIMAL`, `DATE`, `DATETIME` columns
+
+**What does NOT count:**
+- `TEXT` columns (Small Text, Text, Long Text) — only 10 bytes in-row (pointer)
+- `LONGTEXT` columns — 12 bytes in-row
+
+**Field type impact:**
+
+| Frappe Field | MySQL Type | In-Row Bytes |
+|---|---|---|
+| Data, Link, Select | VARCHAR(140) | 140-142 |
+| Text, Small Text | TEXT | 10 |
+| Long Text | LONGTEXT | 12 |
+| Int | INT | 4 |
+| Currency, Float | DECIMAL | ~8 |
+
+**The paradox:** Text fields "take more disk space" but save row size. Use `Data` for short indexed fields; use `Text` for descriptions and notes.
+
+### What Are Orphan Columns?
+
+When you delete a Custom Field in Frappe:
+- ✅ The Custom Field record is deleted
+- ✅ The field disappears from the form
+- ❌ The database column is **NOT dropped** (safety measure)
+
+These leftover columns are "orphan fields." They waste row size and can eventually cause the "Row size too large" error.
+
+### `bench trim-tables`
+
+```bash
+# Preview what will be removed (dry run — always do this first)
+bench --site mysite trim-tables --dry-run
+
+# Execute trimming (creates backup automatically)
+bench --site mysite trim-tables
+
+# Skip backup (not recommended)
+bench --site mysite trim-tables --no-backup
+
+# JSON output
+bench --site mysite trim-tables --dry-run --format json
+```
+
+### Python API
+
+```python
+from frappe.model.meta import trim_table, trim_tables
+
+# Check orphans for one DocType
+orphans = trim_table("Customer", dry_run=True)
+print(f"Orphan columns: {orphans}")
+
+# Remove orphans
+trim_table("Customer", dry_run=False)
+
+# Trim all tables
+result = trim_tables(dry_run=False)
+
+# Check row size
+row_size = frappe.db.get_row_size("Customer")
+print(f"Row size: {row_size} / 65535 bytes")
+
+# Check utilization %
+from frappe.core.doctype.doctype.doctype import get_row_size_utilization
+pct = get_row_size_utilization("Customer")
+print(f"Row size utilization: {pct}%")
+```
+
+### Via Customize Form
+
+Go to **Customize Form** → select DocType → **Actions** → **Trim Table**. Shows a warning with the list of columns to be dropped, then executes on confirmation.
+
+### Solutions When Row Size Is Too Large
+
+**Option 1: Change Data fields to Text (saves 130+ bytes per field)**
+
+```python
+from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+make_property_setter("Customer", "description", "fieldtype", "Text", "Data")
+frappe.db.sql("ALTER TABLE `tabCustomer` MODIFY `description` TEXT")
+```
+
+**Option 2: Remove unused custom fields**
+
+```python
+# Find custom fields with no data
+for cf in frappe.get_all("Custom Field", filters={"dt": "Customer"}, fields=["fieldname", "label"]):
+    count = frappe.db.count("Customer", {cf.fieldname: ["is", "set"]})
+    if count == 0:
+        print(f"Unused: {cf.fieldname} ({cf.label})")
+```
+
+**Option 3: Trim orphan columns** (see above)
+
+**Option 4: Split the DocType** — move groups of fields to a linked child DocType or separate DocType.
+
+### Safe Trimming Workflow
+
+```python
+# 1. Check what will be removed
+orphans = trim_table("Customer", dry_run=True)
+
+# 2. Check if orphans have data
+for field in orphans:
+    count = frappe.db.count("Customer", {field: ["is", "set"]})
+    print(f"{field}: {count} records with data")
+
+# 3. Back up data if needed
+# 4. Trim
+trim_table("Customer", dry_run=False)
+
+# 5. Verify
+new_size = frappe.db.get_row_size("Customer")
+print(f"New row size: {new_size} bytes")
+```
+
+### Monthly Maintenance Script
+
+```bash
+#!/bin/bash
+SITE="mysite.local"
+
+# Backup first
+bench --site $SITE backup --with-files
+
+# Preview
+bench --site $SITE trim-tables --dry-run
+
+# Execute
+bench --site $SITE trim-tables
 ```
