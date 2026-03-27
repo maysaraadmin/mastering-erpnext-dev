@@ -253,7 +253,7 @@ customer_master = {
             "reqd": 1,
             "unique": 1,
             "length": 140,
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "email",
@@ -261,14 +261,14 @@ customer_master = {
             "label": "Email",
             "options": "Email",
             "unique": 1,
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "customer_group",
             "fieldtype": "Link",
             "options": "Customer Group",
             "reqd": 1,
-            "indexed": True,
+            "search_index": 1,
             "depends_on": "eval:doc.docstatus == 0"
         },
         # Contact information (non-indexed)
@@ -305,7 +305,7 @@ customer_master = {
             "fieldtype": "Select",
             "options": "Active\nInactive\nBlocked",
             "default": "Active",
-            "indexed": True
+            "search_index": 1
         }
     ],
     "permissions": [
@@ -347,7 +347,7 @@ sales_order = {
             "fieldtype": "Link",
             "options": "Customer",
             "reqd": 1,
-            "indexed": True,
+            "search_index": 1,
             "change_on_update": 1
         },
         {
@@ -355,20 +355,20 @@ sales_order = {
             "fieldtype": "Date",
             "default": "Today",
             "reqd": 1,
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "delivery_date",
             "fieldtype": "Date",
             "reqd": 1,
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "status",
             "fieldtype": "Select",
             "options": "Draft\nSubmitted\nCancelled",
             "default": "Draft",
-            "indexed": True
+            "search_index": 1
         },
         # Financial fields (calculated, not stored)
         {
@@ -417,7 +417,7 @@ sales_order_item = {
             "options": "Sales Order",
             "reqd": 1,
             "hidden": 1,
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "parenttype",
@@ -432,7 +432,7 @@ sales_order_item = {
             "options": "Item",
             "reqd": 1,
             "in_list_view": 1,
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "item_name",
@@ -473,14 +473,14 @@ sales_order_item = {
             "fieldtype": "Float",
             "label": "Delivered Quantity",
             "precision": "2",
-            "indexed": True
+            "search_index": 1
         },
         {
             "fieldname": "status",
             "fieldtype": "Select",
             "options": "Pending\nPartially Delivered\nDelivered",
             "default": "Pending",
-            "indexed": True
+            "search_index": 1
         }
     ],
     "permissions": [

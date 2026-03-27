@@ -168,7 +168,7 @@ apps/
     │   ├── modules.txt         # Module definitions
     │   ├── patches.txt         # Database patches
     │   ├── permissions.json    # Default permissions
-    │   ├── setup.py            # Package setup
+    │   ├── pyproject.toml      # Package setup (v15+; use setup.py for v14)
     │   ├── api.py              # Custom API endpoints
     │   ├── utils.py            # Utility functions
     │   ├── overrides.py        # Framework overrides
@@ -534,25 +534,29 @@ def validate_sales_order(doc):
 **1. Conditional Hook Registration:**
 ```python
 # In hooks.py - Conditional hook registration
-def register_hooks():
-    """Register hooks based on configuration"""
-    
-    # Only register scheduler events if enabled
-    if frappe.db.get_single_value("System Settings", "enable_scheduler"):
-        scheduler_events.update({
-            "daily": ["my_app.tasks.daily_maintenance"],
-            "weekly": ["my_app.tasks.weekly_cleanup"]
-        })
-    
-    # Only register UI hooks in development mode
-    if frappe.conf.developer_mode:
-        app_include_js += ",/assets/my_app/js/dev.js"
-        custom_script.update({
-            "Sales Order": "my_app.public.js.dev_enhancements"
-        })
+# IMPORTANT: hooks.py is imported at startup, before the database is available
+# (e.g. during bench migrate on a fresh site). Never call frappe.db inside
+# module-level code in hooks.py — it will crash on fresh installs.
+#
+# The correct pattern is to put conditional logic inside the hook handler
+# functions themselves, not at module load time.
 
-# Register hooks dynamically
-register_hooks()
+# WRONG — will crash during bench migrate on a fresh site:
+# def register_hooks():
+#     if frappe.db.get_single_value("System Settings", "enable_scheduler"):
+#         ...
+# register_hooks()
+
+# CORRECT — check the condition inside the handler at runtime:
+def daily_maintenance(doc=None, method=None):
+    """Only run maintenance if scheduler is enabled in settings."""
+    if not frappe.db.get_single_value("System Settings", "enable_scheduler"):
+        return
+    # ... maintenance logic
+
+# For dev-only assets, use frappe.conf (reads site_config.json, safe at import):
+if frappe.conf.get("developer_mode"):
+    app_include_js = "/assets/my_app/js/dev.js"
 ```
 
 **2. Hook Dependencies:**
@@ -724,16 +728,16 @@ def generate_performance_report():
 
 The `modules.txt` file defines the modules within your app and their organization.
 
-```txt
-# Standard format
-Module Name,Module Icon,Color,Label
+> **Note:** `modules.txt` uses a simple one-module-per-line plain text format. The comma-separated format with icons and colors shown in some older guides is **not** the correct format and will not work.
 
-# Examples
-My Custom App,octicon octicon-package,green,My Custom App
-Asset Management,octicon octicon-package,blue,Asset Management
-Reports,octicon octicon-graph,orange,Reports
-Settings,octicon octicon-gear,grey,Settings
+```txt
+My Custom App
+Asset Management
+Reports
+Settings
 ```
+
+Each line is the exact module name as it appears in the `module` field of your DocType JSON files.
 
 #### Module Structure
 
@@ -1092,27 +1096,37 @@ bench new-app your_app_name
 # App License: MIT
 ```
 
-**Step 2: Set up `setup.py` properly**
-```python
-from setuptools import setup, find_packages
-from your_app import __version__ as version
+**Step 2: Set up `pyproject.toml` (Frappe v15+)**
 
-with open("requirements.txt") as f:
-    install_requires = f.read().strip().split("\n")
+> **Note:** Frappe v15+ uses `pyproject.toml` instead of `setup.py`. If you are on v14, use `setup.py` as shown in the v14 note below.
 
-setup(
-    name="your_app_name",
-    version=version,
-    description="Your comprehensive app description",
-    author="Your Organization",
-    author_email="contact@yourorg.com",
-    packages=find_packages(),
-    zip_safe=False,
-    include_package_data=True,
-    install_requires=install_requires
-)
+```toml
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "your_app_name"
+version = "0.1.0"
+description = "Your comprehensive app description"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Your Organization", email = "contact@yourorg.com" }]
+requires-python = ">=3.10"
+dependencies = ["frappe"]
+
+[tool.flit.module]
+name = "your_app_name"
 ```
-`setup.py` is the identity card of your app — without it, dependencies won't install automatically, version tracking for patches may fail, and deployment won't work properly.
+
+> **v14 fallback:** If you are on Frappe v14, use `setup.py` instead:
+> ```python
+> from setuptools import setup, find_packages
+> setup(name="your_app_name", version="0.1.0", packages=find_packages(),
+>       zip_safe=False, include_package_data=True, install_requires=["frappe"])
+> ```
+
+`pyproject.toml` is the identity card of your app — without it, dependencies won't install automatically, version tracking for patches may fail, and deployment won't work properly.
 
 **Step 3: Version and constants**
 

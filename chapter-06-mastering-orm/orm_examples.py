@@ -177,7 +177,7 @@ class ORMExamples:
             fields=['name', 'customer_name', 'email', 'customer_group'],
             filters={'customer_group': 'Individual'},
             order_by='customer_name asc',
-            limit_page_length=10
+            page_length=10
         )
         
         self.logger.info(f"Found {len(customers)} customers with get_list()")
@@ -383,8 +383,8 @@ class ORMExamples:
         self.logger.info(f"High-value customers query completed: {len(high_value_customers)}")
         
         return {
+            "customers_with_orders": customers_with_orders,
             "high_value_results": high_value_results,
-            "execution_time": self.last_execution_time
         }
     
     # =============================================================================
@@ -429,25 +429,37 @@ class ORMExamples:
         start_time = time.time()
         
         # frappe.db.bulk_insert() does not exist in Frappe v14/v15.
-        # Use a single SQL INSERT with multiple value rows for true bulk performance.
-        import uuid
+        # Use a single parameterized SQL INSERT with multiple value rows.
+        # NEVER use f-strings or string formatting to build SQL VALUES —
+        # always use %s placeholders to prevent SQL injection.
         from frappe.utils import now_datetime
         
         now = now_datetime()
-        values = []
+        rows = []
         for d in customers_data:
             name = frappe.generate_hash(length=10)
-            values.append(f"('{name}', '{d['customer_name']}', '{d['customer_group']}', "
-                          f"'{d['territory']}', '{frappe.session.user}', '{now}', "
-                          f"'{frappe.session.user}', '{now}')")
+            rows.append((
+                name,
+                d['customer_name'],
+                d['customer_group'],
+                d['territory'],
+                frappe.session.user,
+                now,
+                frappe.session.user,
+                now,
+            ))
         
-        if values:
-            frappe.db.sql("""
-                INSERT INTO `tabCustomer`
+        if rows:
+            placeholders = "(%s, %s, %s, %s, %s, %s, %s, %s)"
+            values_clause = ", ".join([placeholders] * len(rows))
+            flat_params = [v for row in rows for v in row]
+            frappe.db.sql(
+                f"""INSERT INTO `tabCustomer`
                     (name, customer_name, customer_group, territory,
                      owner, creation, modified_by, modified)
-                VALUES {}
-            """.format(", ".join(values)))
+                VALUES {values_clause}""",
+                flat_params,
+            )
             frappe.db.commit()
         
         end_time = time.time()
@@ -566,24 +578,35 @@ class ORMExamples:
                 bulk_insert_time = time.time() - start_time
                 self.logger.info(f"v16 bulk_insert completed in {bulk_insert_time:.3f}s")
             else:
-                # v14/v15 fallback: Use raw SQL for bulk insert
-                self.logger.info("v14/v15 detected: Using raw SQL for bulk insert")
+                # v14/v15 fallback: Use parameterized SQL for bulk insert
+                # NEVER use f-strings to build SQL VALUES — use %s placeholders.
+                self.logger.info("v14/v15 detected: Using parameterized SQL for bulk insert")
                 from frappe.utils import now_datetime
                 now = now_datetime()
-                values = []
+                rows = []
                 for d in customers_to_insert:
                     name = frappe.generate_hash(length=10)
-                    values.append(f"('{name}', '{d['customer_name']}', '{d['customer_group']}', "
-                                  f"'{d['territory']}', '{frappe.session.user}', '{now}', "
-                                  f"'{frappe.session.user}', '{now}')")
+                    rows.append((
+                        name,
+                        d['customer_name'],
+                        d['customer_group'],
+                        frappe.session.user,
+                        now,
+                        frappe.session.user,
+                        now,
+                    ))
                 
-                if values:
-                    frappe.db.sql("""
-                        INSERT INTO `tabCustomer`
-                            (name, customer_name, customer_group, territory,
+                if rows:
+                    placeholders = "(%s, %s, %s, %s, %s, %s, %s)"
+                    values_clause = ", ".join([placeholders] * len(rows))
+                    flat_params = [v for row in rows for v in row]
+                    frappe.db.sql(
+                        f"""INSERT INTO `tabCustomer`
+                            (name, customer_name, customer_group,
                              owner, creation, modified_by, modified)
-                        VALUES {}
-                    """.format(", ".join(values)))
+                        VALUES {values_clause}""",
+                        flat_params,
+                    )
                     frappe.db.commit()
                 bulk_insert_time = time.time() - start_time
                 self.logger.info(f"v14/v15 bulk insert completed in {bulk_insert_time:.3f}s")
@@ -858,7 +881,7 @@ class ORMExamples:
         # Strategy 2: Use LIMIT
         limited_results = frappe.get_all('Customer', 
                                        filters={'customer_group': 'Individual'},
-                                       limit_page_length=100)
+                                       limit=100)
         
         # Strategy 3: Use EXISTS instead of IN
         exists_query = frappe.db.sql("""

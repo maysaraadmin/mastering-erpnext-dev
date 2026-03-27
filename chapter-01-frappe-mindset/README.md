@@ -265,7 +265,7 @@ complex_query = frappe.db.sql("""
 # Core framework files that every Frappe developer should understand
 
 # 1. Document Class - The heart of Frappe's ORM
-# Location: frappe/model/doc.py
+# Location: frappe/model/document.py
 class Document:
     def __init__(self, doctype, name=None):
         # Document initialization and metadata loading
@@ -376,7 +376,7 @@ frappe/
 
 **Key Files to Study:**
 
-1. `frappe/model/doc.py` - Core Document class
+1. `frappe/model/document.py` - Core Document class
 2. `frappe/model/db_query.py` - Database query builder
 3. `frappe/www/desk.py` - Main desk interface
 4. `frappe/public/js/frappe/model/doc.js` - Client-side document handling

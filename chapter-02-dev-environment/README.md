@@ -384,7 +384,6 @@ frappe-bench/
     "max_file_size": 10485760,
     "redis_cache": "redis://localhost:13000",
     "redis_queue": "redis://localhost:13001",
-    "redis_socketio": "redis://localhost:13002",
     "restart_supervisor_on_update": false,
     "serve_default_site": true,
     "shallow_clone": true,

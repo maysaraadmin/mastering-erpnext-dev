@@ -13,11 +13,13 @@ By the end of this chapter, you will master:
 
 ## 📚 Chapter Topics
 
-### 5.1 Understanding the Document Class Architecture
+### 5.1 Understanding Document Class Architecture
 
 **The Document Class Internal Structure**
 
 The Document class is the heart of Frappe's ORM system. Understanding its internal architecture is crucial for building high-performance applications and debugging complex issues.
+
+> **📊 Visual Reference**: See the complete document lifecycle diagram in `resources/diagrams/document_lifecycle.md` for a comprehensive view of how documents flow through the system.
 
 #### How Document Manages State
 
@@ -97,6 +99,44 @@ class Document:
 ```
 
 #### Hook Execution Engine
+
+**Simplified Hook Example (For Beginners)**
+
+```python
+# Simple controller with basic hooks - perfect for getting started
+class SimpleAssetController(Document):
+    def validate(self):
+        """Called before saving - basic validation"""
+        # Ensure asset name is provided
+        if not self.asset_name:
+            frappe.throw("Asset Name is required")
+        
+        # Ensure purchase amount is positive
+        if self.purchase_amount <= 0:
+            frappe.throw("Purchase Amount must be greater than 0")
+    
+    def before_save(self):
+        """Called just before saving - calculate values"""
+        # Set default status if not provided
+        if not self.status:
+            self.status = "Available"
+    
+    def on_update(self):
+        """Called after saving - send notification"""
+        # Simple notification when asset is updated
+        frappe.msgprint(f"Asset {self.name} has been updated")
+```
+
+**Understanding Hook Order:**
+1. `validate()` → Check data validity
+2. `before_save()` → Prepare data for saving  
+3. `on_update()` → Actions after successful save
+
+This simple pattern covers 80% of common controller use cases!
+
+---
+
+**Advanced Hook Execution System**
 
 ```python
 # Hook execution system with performance optimization

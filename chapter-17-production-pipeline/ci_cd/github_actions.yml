@@ -109,4 +109,4 @@ jobs:
       run: |
         echo "$DEPLOY_KEY" > deploy_key
         chmod 600 deploy_key
-        ssh -i deploy_key -o StrictHostKeyChecking=no $PRODUCTION_HOST 'cd /home/frappe/frappe-bench && bench update --pull && bench migrate && bench restart'
+        ssh -i deploy_key -o StrictHostKeyChecking=no $PRODUCTION_HOST 'set -e; cd /home/frappe/frappe-bench && bench update --pull && bench migrate && bench restart'

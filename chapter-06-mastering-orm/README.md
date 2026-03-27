@@ -1373,12 +1373,18 @@ def optimized_query_4():
 #### Caching Strategies
 
 ```python
-# Using Frappe cache
+# Using Frappe cache with version compatibility
 def get_customer_with_cache(customer_id):
     cache_key = f"customer_data_{customer_id}"
     
-    # Try to get from cache
-    cached_data = frappe.cache().get(cache_key)
+    # Version-compatible cache access
+    try:
+        # v14 pattern: frappe.cache() returns cache object
+        cached_data = frappe.cache().get(cache_key)
+    except AttributeError:
+        # v15+ pattern: frappe.cache has static methods
+        cached_data = frappe.cache.get_value(cache_key)
+    
     if cached_data:
         return cached_data
     
@@ -1386,15 +1392,25 @@ def get_customer_with_cache(customer_id):
     customer = frappe.get_doc('Customer', customer_id)
     customer_data = customer.as_dict()
     
-    # Cache for 1 hour
-    frappe.cache().set(cache_key, customer_data, expires_in_sec=3600)
+    # Cache for 1 hour (version-compatible)
+    try:
+        # v14 pattern
+        frappe.cache().setex(cache_key, customer_data, 3600)
+    except AttributeError:
+        # v15+ pattern
+        frappe.cache.set_value(cache_key, customer_data, expires_in_sec=3600)
     
     return customer_data
 
-# Cache invalidation
+# Cache invalidation with version compatibility
 def invalidate_customer_cache(customer_id):
     cache_key = f"customer_data_{customer_id}"
-    frappe.cache().delete(cache_key)
+    try:
+        # v14 pattern
+        frappe.cache().delete(cache_key)
+    except AttributeError:
+        # v15+ pattern
+        frappe.cache.delete_value(cache_key)
 
 # In controller
 class Customer(Document):

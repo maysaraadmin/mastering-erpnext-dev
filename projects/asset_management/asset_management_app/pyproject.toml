@@ -1,0 +1,16 @@
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "asset_management_app"
+version = "0.0.1"
+description = "Complete asset tracking and management system"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Your Organization", email = "info@example.com" }]
+requires-python = ">=3.10"
+dependencies = ["frappe"]
+
+[tool.flit.module]
+name = "asset_management_app"

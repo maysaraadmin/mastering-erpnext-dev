@@ -487,8 +487,10 @@ class Asset(Document):
     
     def cleanup_related_data(self) -> None:
         """Clean up related data when asset is deleted"""
-        # Delete activity logs
-        frappe.db.delete('Asset Activity Log', {'asset': self.name})
+        # NOTE: 'Asset Activity Log' is not a standard DocType — activity is
+        # logged via frappe.logger() in log_asset_activity(). If your app
+        # defines a custom 'Asset Activity Log' DocType, uncomment the line below.
+        # frappe.db.delete('Asset Activity Log', {'asset': self.name})
         
         # Delete maintenance schedules
         frappe.db.delete('Asset Maintenance Schedule', {'asset': self.name})

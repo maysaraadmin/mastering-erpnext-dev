@@ -1,16 +1,18 @@
-# Chapter 35: External Integrations and Web Services
+# Chapter 35: External Integrations
 
 ## 🎯 Learning Objectives
 
 By the end of this chapter, you will master:
-- **Integrating Google Maps** to replace OpenStreetMap in Frappe applications
-- **Implementing geolocation** with Nominatim API for address validation
-- **Building webhook systems** for real-time data synchronization
-- **Creating payment gateway integrations** with Stripe, PayPal, and others
-- **Developing email/SMS integrations** with SendGrid, Twilio, and AWS SES
-- **Implementing social media integrations** with Facebook, Twitter, LinkedIn
-- **Building REST API integrations** with third-party services
-- **Managing API authentication** and security for external services
+- **Building robust** REST API endpoints for external systems
+- **Implementing secure** webhook systems with signature verification
+- **Integrating with** third-party services (Google Maps, payment gateways)
+- **Handling real-time** data synchronization and conflict resolution
+- **Managing API** authentication with OAuth 2.0 and token-based security
+- **Implementing enterprise** integration patterns with SAP and Salesforce
+- **Designing scalable** integration architecture for high-volume data exchange
+- **Error handling** and retry logic for reliable integrations
+
+> **📊 Visual Reference**: See the complete SAP integration architecture in `resources/diagrams/sap_integration.md` for detailed diagrams of enterprise integration patterns.
 
 ## 📚 Chapter Topics
 
